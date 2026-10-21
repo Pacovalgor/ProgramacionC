@@ -1,3 +1,18 @@
+/**
+ * @file App.tsx
+ * @description Componente principal de la plataforma interactiva de Programación C en Sistemas Embebidos.
+ *
+ * Responsabilidades arquitectónicas:
+ * 1. Gestión del estado global del microcontrolador activo (`selectedMcuId` entre los 5 chips reales).
+ * 2. Navegación entre los 12 Módulos del curso (`Módulo 0` a `Módulo 11`) y sincronización automática
+ *    con la estación de laboratorio recomendada (`activeLab`).
+ * 3. Persistencia local en `localStorage` del progreso de módulos superados (`programacion_c_completed_modules`).
+ * 4. Coordinación del motor de retos de programación C en 3 niveles por módulo mediante `evaluateEmbeddedCCode`.
+ * 5. Renderizado estructurado orientado a estudio en cuaderno físico: Puente Pedagógico, Capítulos de
+ *    Teoría Profunda, Diccionario Técnico, Fórmulas, Esquemas para dibujar, Código en 3 niveles de abstracción,
+ *    Laboratorios Interactivos y Baterías de Autoevaluación.
+ */
+
 import React, { useState, useEffect } from 'react';
 import {
   Cpu,
@@ -26,32 +41,42 @@ import {
   evaluateEmbeddedCCode
 } from './components/InteractiveLabs';
 
+/** Clave utilizada en `localStorage` para persistir los IDs de los módulos completados por el estudiante. */
+const COMPLETED_MODULES_STORAGE_KEY = 'programacion_c_completed_modules';
+
 export function App() {
+  // Microcontrolador activo seleccionado en la cabecera (por defecto STM32F401RE)
   const [selectedMcuId, setSelectedMcuId] = useState<MCUId>('stm32f401');
+  // Módulo activo del plan de estudios (0 = Base C .. 11 = Normativa ECSS/NASA)
   const [activeModuleId, setActiveModuleId] = useState<number>(0);
+  // Nivel de abstracción del código C mostrado (Puntero crudo, Struct CMSIS/SDK o Driver Profesional)
   const [abstractionLevel, setAbstractionLevel] = useState<'rawPointer' | 'cmsisStruct' | 'proDriver'>('cmsisStruct');
+  // Alterna la vista simultánea del código en los 5 microcontroladores en paralelo
   const [compareAllMcusCode, setCompareAllMcusCode] = useState<boolean>(false);
+  // Muestra/oculta la matriz técnica desplegable comparando los 5 chips
   const [showSpecsMatrix, setShowSpecsMatrix] = useState<boolean>(false);
+  // Estación activa del Laboratorio Interactivo (Lab 0 a Lab 9)
   const [activeLab, setActiveLab] = useState<ExtendedLabViewType>('c-memory-pointers');
 
-  // Challenge & extra quizzes state
+  // Estado de respuestas seleccionadas en los retos tipo test y módulos completados
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [completedModules, setCompletedModules] = useState<number[]>(() => {
     try {
-      const saved = localStorage.getItem('siliconbridge_completed_modules');
+      const saved = localStorage.getItem(COMPLETED_MODULES_STORAGE_KEY);
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
 
-  // 3-Level Hands-on C coding challenges state per module
+  // Estado de los 3 retos prácticos de programación C por módulo (Nivel 1, Nivel 2 y Nivel 3)
   const [selectedChallengeIdx, setSelectedChallengeIdx] = useState<number>(0);
   const [challengeCodeInput, setChallengeCodeInput] = useState<string>('');
   const [showChallengeHint, setShowChallengeHint] = useState<boolean>(false);
   const [showChallengeSolution, setShowChallengeSolution] = useState<boolean>(false);
   const [solvedChallengeKeys, setSolvedChallengeKeys] = useState<Record<string, boolean>>({});
 
+  // Resolución de datos derivados para el microcontrolador y módulo actuales
   const currentMcu = MCU_CATALOG[selectedMcuId];
   const currentModule = COURSE_MODULES.find((m) => m.id === activeModuleId) || COURSE_MODULES[0];
   const currentExtended = MODULE_EXTENDED_DATA[currentModule.id] || MODULE_EXTENDED_DATA[0];
@@ -60,6 +85,7 @@ export function App() {
     currentExtended.codingChallenges[selectedChallengeIdx] || currentExtended.codingChallenges[0];
   const moduleCodeForMcu = currentModule.mcuCode[selectedMcuId];
 
+  // Al cambiar de módulo, reinicia el selector de reto práctico al Nivel 1 (índice 0)
   useEffect(() => {
     setSelectedChallengeIdx(0);
     const firstChallenge = (MODULE_EXTENDED_DATA[activeModuleId] || MODULE_EXTENDED_DATA[0]).codingChallenges[0];
@@ -68,6 +94,9 @@ export function App() {
     setShowChallengeSolution(false);
   }, [activeModuleId]);
 
+  /**
+   * Cambia entre los 3 niveles de dificultad del reto de código C dentro del módulo activo.
+   */
   const handleSelectChallengeLevel = (idx: number) => {
     setSelectedChallengeIdx(idx);
     const ch = currentExtended.codingChallenges[idx];
@@ -78,14 +107,18 @@ export function App() {
     }
   };
 
+  // Sincroniza la lista de módulos completados con localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('siliconbridge_completed_modules', JSON.stringify(completedModules));
+      localStorage.setItem(COMPLETED_MODULES_STORAGE_KEY, JSON.stringify(completedModules));
     } catch {
-      // ignore
+      // Ignorar errores de cuota o modo privado del navegador
     }
   }, [completedModules]);
 
+  /**
+   * Selecciona un módulo del temario y conmuta automáticamente a su estación de laboratorio recomendada.
+   */
   const handleSelectModule = (modId: number) => {
     setActiveModuleId(modId);
     const mod = COURSE_MODULES.find((m) => m.id === modId);
@@ -94,6 +127,10 @@ export function App() {
     }
   };
 
+  /**
+   * Registra la respuesta del usuario a una pregunta de diagnóstico o test.
+   * Si corresponde al reto principal del módulo (`marksModule = true`) y es correcta, marca el módulo como completado.
+   */
   const handleAnswerQuiz = (quizKey: string, optionId: string, isCorrect: boolean, marksModule = false) => {
     setSelectedAnswers((prev) => ({ ...prev, [quizKey]: optionId }));
     if (marksModule && isCorrect && !completedModules.includes(currentModule.id)) {
@@ -101,7 +138,7 @@ export function App() {
     }
   };
 
-  // Evaluate the current module's active hands-on C coding challenge
+  // Evaluación determinista en tiempo real del código C escrito por el usuario en el reto activo
   const challengeEval = evaluateEmbeddedCCode(
     challengeCodeInput,
     currentCodingChallenge.initialRegValue,
@@ -111,6 +148,7 @@ export function App() {
     challengeEval.success &&
     (challengeEval.finalValue >>> 0) === (currentCodingChallenge.expectedRegValue >>> 0);
 
+  // Marca automáticamente el nivel del reto práctico como superado cuando el registro alcanza el valor esperado
   useEffect(() => {
     const key = `${currentModule.id}-${selectedChallengeIdx}`;
     if (isCodingChallengeSolved && !solvedChallengeKeys[key]) {
@@ -123,7 +161,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* ===================================================================
-          TOP BAR: BRANDING + GLOBAL MICROCONTROLLER SELECTOR
+          BARRA SUPERIOR: IDENTIDAD DEL PROYECTO + SELECTOR GLOBAL DE MCU
          =================================================================== */}
       <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-4 py-3">
         <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
@@ -135,14 +173,14 @@ export function App() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-white">
-                    SiliconBridge <span className="text-cyan-400">C Embebido & Hardware</span>
+                    Programación C <span className="text-cyan-400">Sistemas Embebidos & Hardware</span>
                   </h1>
                   <span className="hidden sm:inline-block text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                    Curso + Laboratorio + Cuaderno de Apuntes
+                    Curso + Laboratorio + Cuaderno de Estudio
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  De nociones básicas a Experto Industrial enlazando C, Datasheet, Registros y Transistores
+                  De fundamentos de C a Ingeniería Aeroespacial (ECSS / NASA) enlazando Código, Datasheet, Registros y Transistores
                 </p>
               </div>
             </div>

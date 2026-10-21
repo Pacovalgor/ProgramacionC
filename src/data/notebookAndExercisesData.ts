@@ -1,29 +1,71 @@
+/**
+ * @file notebookAndExercisesData.ts
+ * @description Diccionario técnico, reglas de oro (incluyendo cláusulas oficiales ECSS, NASA JPL,
+ * DO-178C y MISRA-C), guías de dibujo de esquemas para cuaderno físico, plantillas de código C
+ * comentadas línea a línea, retos prácticos de programación C evaluados en tiempo real
+ * (`codingChallenges`) y baterías de preguntas de autoevaluación (`extraQuizzes`).
+ *
+ * Política de mantenimiento:
+ * - Nunca eliminar definiciones, reglas, retos ni preguntas existentes; ampliar siempre de forma aditiva.
+ * - Los retos `codingChallenges` son verificados por `evaluateEmbeddedCCode` comparando el valor
+ *   final sin signo (`>>> 0`) contra `expectedRegValue`.
+ */
+
+/**
+ * Definición formal de un concepto de C o de arquitectura hardware junto con su realidad en silicio.
+ */
 export interface NotebookDefinition {
+  /** Término técnico (ej. `Calificador volatile`, `Single Event Upset (SEU)`). */
   term: string;
+  /** Definición teórica rigurosa para transcribir al cuaderno. */
   definition: string;
+  /** Qué ocurre físicamente en los transistores, buses, biestables o registros de la CPU. */
   siliconReality: string;
+  /** Línea o bloque breve de código C canónico que ejemplifica el término. */
   exampleToCopy: string;
 }
 
+/**
+ * Regla de oro, fórmula matemática de diseño o requisito normativo (ECSS / NASA / MISRA-C).
+ */
 export interface NotebookGoldenRule {
+  /** Título de la regla o referencia normativa. */
   title: string;
+  /** Expresión matemática, patrón de código C o mandato normativo (`SHALL` / `SHALL NOT`). */
   formulaOrRule: string;
+  /** Explicación detallada de por qué existe la regla y qué fallo previene. */
   explanation: string;
 }
 
+/**
+ * Reto práctico de escritura de expresiones C evaluado en vivo sobre un registro de 8 o 32 bits.
+ */
 export interface CodingChallengeDef {
+  /** Nivel de dificultad dentro de la progresión de 3 retos del módulo. */
   levelLabel: 'Nivel 1: Base' | 'Nivel 2: Intermedio' | 'Nivel 3: Experto';
+  /** Título descriptivo del ejercicio. */
   title: string;
+  /** Enunciado con los bits o campos exactos que deben modificarse. */
   instruction: string;
+  /** Valor inicial del registro (`REG`) antes de ejecutar el código del usuario. */
   initialRegValue: number;
+  /** Anchura en bits del registro simulado (`8` o `32`). */
   regWidth: 8 | 32;
+  /** Valor numérico exacto que debe contener `REG` tras evaluar las sentencias C para dar por superado el reto. */
   expectedRegValue: number;
+  /** Código inicial que aparece precargado en el editor del reto. */
   starterCode: string;
+  /** Pista opcional paso a paso. */
   hint: string;
+  /** Solución canónica en C embebido. */
   solutionCode: string;
+  /** Explicación de las máscaras y desplazamientos empleados en la solución. */
   explanation: string;
 }
 
+/**
+ * Pregunta adicional de autoevaluación categorizada por habilidad cognitiva.
+ */
 export interface ExtraQuizItem {
   id: string;
   difficulty: 'Traza Mental' | 'Lectura Datasheet' | 'Caza del Bug';
@@ -36,6 +78,9 @@ export interface ExtraQuizItem {
   }[];
 }
 
+/**
+ * Contenido extendido de estudio, cuaderno físico y práctica para un módulo del curso.
+ */
 export interface ModuleExtendedContent {
   moduleId: number;
   notebookSummaryTitle: string;
@@ -51,6 +96,10 @@ export interface ModuleExtendedContent {
   extraQuizzes: ExtraQuizItem[];
 }
 
+/**
+ * Diccionario indexado por `moduleId` (`0` a `11`) con todo el material de referencia,
+ * retos prácticos de código C en 3 niveles y preguntas de autoevaluación.
+ */
 export const MODULE_EXTENDED_DATA: Record<number, ModuleExtendedContent> = {
   // =========================================================================
   // MÓDULO 0

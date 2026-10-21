@@ -1,53 +1,118 @@
+/**
+ * @file mcusData.ts
+ * @description Catálogo de especificaciones técnicas, distribución de pines (Pinout),
+ * mapas de memoria (Flash / SRAM / MMIO) y definiciones de registros de hardware reales
+ * para las 5 arquitecturas de microcontroladores soportadas por el proyecto.
+ *
+ * Guía de mantenimiento:
+ * - Para añadir un nuevo microcontrolador, amplía el tipo unión `MCUId`,
+ *   añade su entrada tipada como `MCUProfile` en `MCU_CATALOG` e inclúyelo en `MCU_LIST`.
+ * - Respeta siempre las direcciones hexadecimales reales del Reference Manual oficial del fabricante.
+ */
+
+/** Identificadores únicos de los 5 microcontroladores del catálogo. */
 export type MCUId = 'atmega328p' | 'stm32f401' | 'esp32c3' | 'nrf52840' | 'rp2040';
 
+/**
+ * Definición de un campo de bits (Bitfield) dentro de un registro periférico.
+ * Permite al Laboratorio de Registros mostrar qué bits controla cada campo y sus valores válidos.
+ */
 export interface BitFieldDef {
+  /** Nombre oficial del campo según el Datasheet (ej. `MODER5[1:0]`). */
   name: string;
-  bits: string; // e.g. "11:10" or "5"
+  /** Rango de bits en formato texto (ej. `"11:10"` o `"5"`). */
+  bits: string;
+  /** Índice del bit más significativo del campo (MSB). */
   msb: number;
+  /** Índice del bit menos significativo del campo (LSB). */
   lsb: number;
+  /** Explicación en español del efecto físico del campo sobre el silicio. */
   description: string;
+  /** Diccionario opcional de combinaciones binarias y su significado en hardware. */
   values?: { [val: string]: string };
 }
 
+/**
+ * Definición completa de un registro Memory-Mapped I/O (MMIO) de 8 o 32 bits.
+ */
 export interface RegisterDef {
+  /** Identificador interno único del registro dentro del MCU. */
   id: string;
+  /** Nombre simbólico oficial en el Datasheet (ej. `GPIOA_MODER`, `DDRB`). */
   name: string;
+  /** Dirección absoluta en el mapa de memoria en hexadecimal (ej. `0x40020000`). */
   address: string;
+  /** Desplazamiento (offset) respecto a la dirección base del periférico (ej. `+0x00`). */
   offset: string;
+  /** Anchura de palabra del registro en bits (`8` para AVR, `32` para ARM/RISC-V). */
   width: 8 | 32;
+  /** Valor numérico por defecto tras un Reset físico de hardware. */
   resetValue: number;
+  /** Permisos de acceso en silicio: Lectura/Escritura (`R/W`), Solo Lectura (`RO`), Solo Escritura (`WO`), Write-1-to-Set (`W1S`), Write-1-to-Clear (`W1C`). */
   access: 'R/W' | 'RO' | 'WO' | 'W1S' | 'W1C';
+  /** Bloque periférico al que pertenece (ej. `GPIOA`, `RCC`, `SIO`). */
   peripheral: string;
+  /** Resumen funcional del registro. */
   summary: string;
+  /** Explicación de su importancia en proyectos reales de ingeniería. */
   whyItMatters: string;
+  /** Ejemplo de acceso mediante estructuras CMSIS / SDK del fabricante. */
   cMacroExample: string;
+  /** Ejemplo de acceso directo mediante puntero `volatile` desreferenciado. */
   rawPointerExample: string;
+  /** Lista de campos de bits que componen el registro. */
   fields: BitFieldDef[];
 }
 
+/**
+ * Definición de un pin físico del encapsulado del microcontrolador para el visor Pinout / Rayos X.
+ */
 export interface PinDef {
+  /** Número físico del pin en el encapsulado. */
   number: number;
+  /** Nombre serigrafiado del pin (ej. `PA5`, `PB5 / D13`, `VDD`). */
   name: string;
+  /** Lado del chip donde se dibuja el pin en el esquema interactivo. */
   side: 'left' | 'right' | 'top' | 'bottom';
+  /** Categoría eléctrica del pin. */
   type: 'gpio' | 'power' | 'gnd' | 'reset' | 'clock' | 'analog';
+  /** Funciones alternativas multiplexadas (AF / MUX) disponibles en ese pin. */
   functions: string[];
+  /** Estado eléctrico tras el Reset (ej. `Alta Impedancia (Hi-Z)`). */
   defaultRole: string;
+  /** Tolerancia máxima de tensión en el pin (ej. `5V Tolerant (FT)` o `Max 3.6V`). */
   voltageTolerance: string;
+  /** Bit o campo de registro que gobierna directamente este pin. */
   internalRegisterBit?: string;
+  /** Descripción técnica de uso y precauciones eléctricas. */
   description: string;
 }
 
+/**
+ * Región del mapa de direcciones de memoria del microcontrolador.
+ */
 export interface MemoryBlock {
+  /** Nombre de la región (ej. `Flash (.text / .rodata)`, `SRAM1`, `Periféricos AHB1`). */
   region: string;
+  /** Dirección hexadecimal de inicio. */
   startAddr: string;
+  /** Dirección hexadecimal de fin. */
   endAddr: string;
+  /** Tamaño total legible (ej. `512 KB`, `96 KB`). */
   size: string;
+  /** Bus interno que conecta la CPU con esta región (`I-Code/D-Code`, `AHB`, `APB`, `IOPORT`). */
   bus: string;
+  /** Clasificación funcional del bloque de memoria. */
   type: 'flash' | 'sram' | 'peripherals' | 'system';
+  /** Ejemplo de declaración en C que se aloja físicamente en este bloque. */
   cStorageExample: string;
+  /** Explicación de qué almacena el compilador/enlazador aquí y cómo responde el hardware. */
   description: string;
 }
 
+/**
+ * Perfil técnico y pedagógico completo de un microcontrolador.
+ */
 export interface MCUProfile {
   id: MCUId;
   name: string;
@@ -62,9 +127,11 @@ export interface MCUProfile {
   ram: string;
   operatingVoltage: string;
   packageType: string;
+  /** Indica si requiere habilitar explícitamente el reloj del puerto (Clock Gating) antes de acceder a sus registros. */
   requiresClockGating: boolean;
   clockGateRegister?: string;
   clockGateCode?: string;
+  /** Mecanismo hardware para modificación atómica de bits sin condiciones de carrera con ISRs. */
   atomicSetMechanism: string;
   industryUseCases: string[];
   pedagogicalRole: string;
@@ -83,6 +150,14 @@ export interface MCUProfile {
   };
 }
 
+/**
+ * Catálogo indexado por `MCUId` con las especificaciones reales de los 5 microcontroladores:
+ * - `atmega328p` (Microchip 8-bit AVR RISC)
+ * - `stm32f401` (STMicroelectronics 32-bit ARM Cortex-M4F)
+ * - `esp32c3` (Espressif 32-bit RISC-V)
+ * - `nrf52840` (Nordic Semiconductor 32-bit ARM Cortex-M4F con PPI/EasyDMA)
+ * - `rp2040` (Raspberry Pi Dual-Core ARM Cortex-M0+ con SIO/PIO)
+ */
 export const MCU_CATALOG: Record<MCUId, MCUProfile> = {
   atmega328p: {
     id: 'atmega328p',

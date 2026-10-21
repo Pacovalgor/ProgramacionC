@@ -1,5 +1,26 @@
+/**
+ * @file curriculumData.ts
+ * @description Plan de estudios estructurado en 12 Módulos (`Módulo 0` a `Módulo 11`),
+ * desde los fundamentos de memoria, punteros y estructuras en C hasta arquitectura de
+ * periféricos, linker scripts, bootloaders y normativa aeroespacial/defensa (ECSS / NASA / DO-178C).
+ *
+ * Estructura pedagógica de cada módulo (`CourseModule`):
+ * 1. Puente Pedagógico en 3 columnas:
+ *    - `superficialMyth`: Qué ocultan los tutoriales básicos tipo Arduino.
+ *    - `overwhelmingDatasheet`: Extracto técnico real del Datasheet o estándar oficial.
+ *    - `theBridgeExplanation`: Conexión física clara entre código C, registros y transistores.
+ * 2. Implementación multi-arquitectura (`mcuCode`) para los 5 microcontroladores en 3 niveles:
+ *    - `rawPointer`: Punteros `volatile` directos a direcciones hexadecimales MMIO.
+ *    - `cmsisStruct`: Estructuras estándar CMSIS / SDK oficial del fabricante.
+ *    - `proDriver`: Abstracción de producción desacoplada, segura y certificable.
+ * 3. Escenario de diagnóstico práctico (`challenge`) basado en fallos reales de ingeniería.
+ */
+
 import { MCUId } from './mcusData';
 
+/**
+ * Identificador de la estación del Laboratorio Interactivo asociada a cada módulo.
+ */
 export type LabViewType =
   | 'c-memory-pointers'
   | 'gpio-xray'
@@ -12,14 +33,26 @@ export type LabViewType =
   | 'multi-file-toolchain'
   | 'space-defense-ecss';
 
+/**
+ * Código C específico de un microcontrolador en los 3 niveles de abstracción industriales,
+ * junto con la traducción a ensamblador (`asmInsight`) y notas de hardware (`hardwareNote`).
+ */
 export interface ModuleCodeByMCU {
+  /** Nivel 1: Puntero crudo desreferenciado (`*(volatile uint32_t *)0x...`). */
   rawPointer: string;
+  /** Nivel 2: Acceso mediante estructuras oficiales CMSIS / SDK (`GPIOA->BSRR`, `sio_hw->gpio_set`). */
   cmsisStruct: string;
+  /** Nivel 3: Driver profesional modularizado y seguro para producción. */
   proDriver: string;
+  /** Instrucciones máquina / ensamblador reales generadas por el compilador (`gcc -O2`). */
   asmInsight: string;
+  /** Nota crítica sobre el comportamiento eléctrico o de bus en ese microcontrolador concreto. */
   hardwareNote: string;
 }
 
+/**
+ * Reto principal de diagnóstico de ingeniería al final de cada módulo.
+ */
 export interface ModuleChallenge {
   question: string;
   scenario: string;
@@ -31,26 +64,46 @@ export interface ModuleChallenge {
   }[];
 }
 
+/**
+ * Definición completa de un Módulo del curso.
+ */
 export interface CourseModule {
+  /** Índice numérico secuencial del módulo (`0` a `11`). */
   id: number;
+  /** Identificador legible para URLs o referencias internas. */
   slug: string;
+  /** Título completo del módulo. */
   title: string;
+  /** Subtítulo descriptivo de los temas abordados. */
   subtitle: string;
+  /** Nivel de profundidad técnica del módulo. */
   level: 'Fundamentos' | 'Intermedio' | 'Avanzado' | 'Experto Industrial';
+  /** Tiempo estimado de estudio y transcripción al cuaderno físico. */
   duration: string;
+  /** Estación de laboratorio interactivo que se selecciona automáticamente al abrir el módulo. */
   recommendedLab: LabViewType;
+  /** Columna 1 del puente pedagógico: el mito superficial. */
   superficialMyth: string;
+  /** Columna 2 del puente pedagógico: la jerga abrumadora del Datasheet/normativa. */
   overwhelmingDatasheet: string;
+  /** Columna 3 del puente pedagógico: la explicación real que conecta software y hardware. */
   theBridgeExplanation: string;
+  /** Puntos clave resumidos con fragmento de código representativo. */
   keyTakeaways: {
     title: string;
     concept: string;
     codeSnippet: string;
   }[];
+  /** Diccionario con las implementaciones en C para cada uno de los 5 microcontroladores. */
   mcuCode: Record<MCUId, ModuleCodeByMCU>;
+  /** Caso práctico de resolución de un bug de hardware/firmware. */
   challenge: ModuleChallenge;
 }
 
+/**
+ * Lista ordenada de los 12 módulos del programa formativo (`Módulo 0` a `Módulo 11`).
+ * Nota de mantenimiento: añadir nuevos módulos siempre al final del array conservando intactos los previos.
+ */
 export const COURSE_MODULES: CourseModule[] = [
   {
     id: 0,

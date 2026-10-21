@@ -1,8 +1,23 @@
+/**
+ * @file deepTheoryData.ts
+ * @description Capítulos de Teoría Profunda estilo libro de texto de ingeniería (`DEEP_THEORY_BY_MODULE`).
+ * Diseñados específicamente para su estudio detallado y transcripción en cuaderno físico de papel.
+ *
+ * Cada módulo (`0` a `11`) cuenta con múltiples capítulos técnicos que incluyen:
+ * - Desarrollo teórico progresivo (`paragraphs`).
+ * - Fórmulas matemáticas y leyes físicas/normativas destacadas (`formulas`).
+ * - Tablas de referencia rápida para copiar al cuaderno (`table`).
+ * - Problemas de ingeniería resueltos paso a paso con cálculos y código (`workedExample`).
+ * - Errores críticos habituales en producción y cómo los evita un ingeniero Senior (`pitfalls`).
+ */
+
+/** Estructura de una tabla técnica comparativa o de referencia para el cuaderno. */
 export interface TheoryTable {
   headers: string[];
   rows: string[][];
 }
 
+/** Caso práctico de ingeniería resuelto paso a paso (cálculo de registros, tiempos o márgenes). */
 export interface WorkedExample {
   title: string;
   problemStatement: string;
@@ -11,28 +26,44 @@ export interface WorkedExample {
   conclusion: string;
 }
 
+/** Error típico de programación embebida, causa física del fallo y solución profesional. */
 export interface PitfallItem {
   mistake: string;
   whyItFails: string;
   seniorFix: string;
 }
 
+/** Capítulo individual de teoría profunda asociado a un módulo del curso. */
 export interface DeepTheoryChapter {
+  /** Identificador único del capítulo (ej. `'m0-c1'`, `'m11-c4'`). */
   id: string;
+  /** Numeración visible del capítulo (ej. `'Capítulo 11.4'`). */
   chapterNumber: string;
+  /** Título técnico del capítulo. */
   title: string;
+  /** Subtítulo explicativo del alcance del capítulo. */
   subtitle: string;
+  /** Párrafos de desarrollo teórico. */
   paragraphs: string[];
+  /** Fórmulas matemáticas o ecuaciones de diseño enmarcadas para el cuaderno físico. */
   formulas?: {
     name: string;
     expression: string;
     explanation: string;
   }[];
+  /** Tabla de referencia opcional. */
   table?: TheoryTable;
+  /** Problema de ingeniería resuelto paso a paso. */
   workedExample: WorkedExample;
+  /** Lista de antipatrones/errores frecuentes y su corrección. */
   pitfalls: PitfallItem[];
 }
 
+/**
+ * Mapa de capítulos de teoría profunda indexado por el `id` del módulo (`0` a `11`).
+ * Política de mantenimiento: añadir siempre nuevos capítulos o apartados de forma incremental,
+ * sin eliminar ni sobrescribir los capítulos existentes.
+ */
 export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   // =========================================================================
   // MÓDULO 0: TEORÍA BASE DE C ORIENTADA A HARDWARE

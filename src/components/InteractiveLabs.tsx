@@ -1,3 +1,20 @@
+/**
+ * @file InteractiveLabs.tsx
+ * @description Motor evaluador determinista de expresiones C (`evaluateEmbeddedCCode`)
+ * y conjunto de las 10 Estaciones del Laboratorio Interactivo de Hardware (`Lab 0` a `Lab 9`):
+ *
+ * - `Lab 0` (`c-memory-pointers`): Base C — Variables, Punteros (`&` / `*`), Endianness, Padding y Structs (`->`).
+ * - `Lab 1` (`gpio-xray`): Pinout & Rayos X — Transistores MOSFET P/N, Push-Pull vs Open-Drain, Ley de Ohm, Rebotes y RCC.
+ * - `Lab 2` (`register-gym`): Datasheet & Bits — Manipulación bit a bit en registros reales de 8 y 32 bits.
+ * - `Lab 3` (`c-live-editor`): Editor C en Vivo — Sandbox libre para evaluar sentencias C paso a paso.
+ * - `Lab 4` (`memory-bus`): Memoria, DMA & ISR — Mapa Flash/SRAM/MMIO, ráfagas DMA, Stack de ISR y Ring Buffer FIFO.
+ * - `Lab 5` (`compiler-volatile`): Compilador & `volatile` — Optimización `-O0` vs `-O2` y Condición de Carrera (`ODR |=` vs `BSRR =`).
+ * - `Lab 6` (`logic-analyzer`): Analizador Lógico & PWM — Osciloscopio digital para PWM (`PSC`, `ARR`, `CCR`) y tramas `UART`, `I2C`, `SPI`.
+ * - `Lab 7` (`peripherals-adc-wdg`): Periféricos — Conversor `SAR ADC` de 12 bits, Árbol de Reloj `PLL` y `Watchdog Timer (IWDG)`.
+ * - `Lab 8` (`multi-file-toolchain`): Librerías, Linker & Boot — Proyectos `.h`/`.c`, librerías `.a`, `const`/`union` y salto `Bootloader -> App (SCB->VTOR)`.
+ * - `Lab 9` (`space-defense-ecss`): Normativa Espacial `ECSS`/`NASA` & `Rad-Hard` — Simulador de radiación cósmica (`SEU`), votador `TMR 2-de-3`, `Memory Scrubbing`, calculadora `ECSS Annex M` y certificador `100% MC/DC`.
+ */
+
 import React, { useState, useEffect } from 'react';
 import {
   Cpu,
@@ -21,6 +38,7 @@ import {
 import { MCUProfile } from '../data/mcusData';
 import { LabViewType } from '../data/curriculumData';
 
+/** Unión de identificadores de las 10 estaciones de laboratorio interactivo disponibles. */
 export type ExtendedLabViewType =
   | LabViewType
   | 'c-live-editor'
@@ -28,25 +46,54 @@ export type ExtendedLabViewType =
   | 'multi-file-toolchain'
   | 'space-defense-ecss';
 
+/**
+ * Representa la traza de ejecución de una única sentencia C sobre un registro hardware simulado.
+ */
 export interface CStatementStep {
+  /** Sentencia en C tal como fue ejecutada (ej. `REG |= (1UL << 5);`). */
   statement: string;
+  /** Valor numérico sin signo del registro antes de ejecutar la sentencia. */
   beforeVal: number;
+  /** Valor numérico sin signo del registro después de ejecutar la sentencia. */
   afterVal: number;
+  /** Lista de índices de bit (`0..7` o `0..31`) cuyo estado conmutó en este paso. */
   changedBits: number[];
+  /** Explicación en español del operador bit a bit aplicado y su máscara hexadecimal. */
   explanation: string;
 }
 
+/**
+ * Resultado devuelto por el evaluador de código C embebido (`evaluateEmbeddedCCode`).
+ */
 export interface CEvalResult {
+  /** Indica si todas las sentencias se analizaron y ejecutaron sin errores de sintaxis. */
   success: boolean;
+  /** Valor final del registro tras aplicar todas las sentencias secuencialmente. */
   finalValue: number;
+  /** Desglose paso a paso de cada sentencia ejecutada. */
   steps: CStatementStep[];
+  /** Mensaje de diagnóstico en caso de error de sintaxis o símbolo no permitido. */
   error?: string;
 }
 
 /**
- * Safe, deterministic C bitwise expression and statement evaluator for embedded registers.
- * Supports: REG, GPIOA->ODR, DDRB, PORTB, literals (0x.., 0b.., decimal, U/UL suffixes),
- * operators: |, &, ^, ~, <<, >>, +, -, *, /, |=, &=, ^=, =
+ * Evaluador determinista y seguro de expresiones y sentencias bit a bit en C para registros embebidos.
+ *
+ * Arquitectura del evaluador:
+ * 1. Limpia comentarios de bloque (`/* ... *\/`) y de línea (`// ...`).
+ * 2. Divide el bloque de código en sentencias individuales separadas por punto y coma (`;`).
+ * 3. Sustituye desreferencias de punteros MMIO (`*(volatile uint32_t *)0x...`) y nombres de registros
+ *    reales (`GPIOA->ODR`, `NRF_P0->OUTSET`, `sio_hw->gpio_set`, `DDRB`, `REG`, etc.) por el valor
+ *    numérico actual del registro en ese instante de la traza.
+ * 4. Elimina sufijos enteros de C (`U`, `UL`, `L`) para compatibilidad con el motor aritmético JS
+ *    y valida mediante lista blanca estricta que solo existan literales numéricos y operadores bit a bit.
+ * 5. Fuerza aritmética sin signo de 32 bits (`>>> 0`) y aplica la máscara de anchura (`0xFF` o `0xFFFFFFFF`)
+ *    para emular con exactitud el desbordamiento y truncamiento de un registro físico en silicio.
+ *
+ * @param code Bloque de una o varias sentencias en C separadas por `;`.
+ * @param initialReg Valor inicial del registro antes de ejecutar la primera sentencia.
+ * @param width Anchura en bits del registro (`8` para AVR o `32` para ARM/RISC-V).
+ * @returns Objeto `CEvalResult` con el valor final, traza de pasos y estado de éxito.
  */
 export function evaluateEmbeddedCCode(
   code: string,
@@ -173,12 +220,23 @@ export function evaluateEmbeddedCCode(
   }
 }
 
+/**
+ * Propiedades de entrada del componente `InteractiveLabs`.
+ */
 interface InteractiveLabsProps {
+  /** Perfil del microcontrolador actualmente seleccionado en la barra superior. */
   mcu: MCUProfile;
+  /** Identificador de la estación de laboratorio activa (`Lab 0` a `Lab 9`). */
   activeLab: ExtendedLabViewType;
+  /** Callback para cambiar de estación de laboratorio desde las pestañas superiores. */
   onSelectLab: (lab: ExtendedLabViewType) => void;
 }
 
+/**
+ * Componente principal de las 10 Estaciones del Laboratorio Interactivo.
+ * Sincroniza automáticamente los registros, pines y buses mostrados cuando el usuario
+ * conmuta entre los 5 microcontroladores (`ATmega328P`, `STM32F401`, `ESP32-C3`, `nRF52840`, `RP2040`).
+ */
 export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
   mcu,
   activeLab,

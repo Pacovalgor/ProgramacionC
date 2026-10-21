@@ -1,6 +1,6 @@
-# SiliconBridge — Reglas y Contexto del Proyecto (`ProgramacionC`)
+# ProgramacionC — Reglas y Contexto del Proyecto
 
-Este repositorio contiene **SiliconBridge**, una plataforma interactiva y libro de texto técnico en español para aprender **Programación en C Embebido, Arquitectura de Microcontroladores y Normativa Aeroespacial/Defensa (ECSS / NASA / DO-178C / MISRA-C)** desde cero (`Módulo 0`) hasta nivel Senior (`Módulo 11`).
+Este repositorio contiene **ProgramacionC**, una plataforma interactiva y libro de texto técnico en español para aprender **Programación en C Embebido, Arquitectura de Microcontroladores y Normativa Aeroespacial/Defensa (ECSS / NASA / DO-178C / MISRA-C)** desde cero (`Módulo 0`) hasta nivel Senior (`Módulo 11`).
 
 ## Reglas Estrictas de Diseño y Comportamiento para el Agente
 
@@ -16,6 +16,8 @@ Este repositorio contiene **SiliconBridge**, una plataforma interactiva y libro 
      1. `rawPointer`: Punteros crudos a registros (`*(volatile uint32_t *)0x...`).
      2. `cmsisStruct`: Estructuras oficiales del fabricante (`GPIOA->BSRR`, `NRF_P0->OUTSET`, `sio_hw->gpio_set`).
      3. `proDriver`: Abstracción profesional / HAL / algoritmos de producción.
+5. **Mantenibilidad y Comentarios de Código:**
+   - Mantén todo el código TypeScript/React y los bloques de datos perfectamente documentados mediante comentarios JSDoc y encabezados de sección claros en español.
 
 ## Mapa de Archivos de la Arquitectura
 
@@ -35,6 +37,3 @@ Este repositorio contiene **SiliconBridge**, una plataforma interactiva y libro 
   - `Lab 8` (`multi-file-toolchain`): Librerías, Linker & Boot — Proyectos `.h`/`.c`, librerías `.a`, `const`/`union` y salto `Bootloader -> App (SCB->VTOR)`.
   - `Lab 9` (`space-defense-ecss`): Normativa Espacial `ECSS`/`NASA` & `Rad-Hard` — Simulador de radiación cósmica (`SEU`), votador `TMR 2-de-3`, `Memory Scrubbing`, calculadora oficial `ECSS Annex M` (`margin_memory` y Factor `S`) y certificador interactivo `100% MC/DC`.
 - `src/App.tsx`: Interfaz principal unificada con barra de progreso persistente en `localStorage`, comparador de los 5 MCUs y vista simultánea de los 5 chips.
-
-## Referencia de Conversación Original
-- Hilo de creación y expansión completa: `6390738a-b122-4699-837d-18537b5748b4` (`conversation://6390738a-b122-4699-837d-18537b5748b4`).
