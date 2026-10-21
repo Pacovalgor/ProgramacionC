@@ -44,6 +44,7 @@ import {
 import { CCodeBlock, CInlineCode, CLiveCodeEditor } from './components/CSyntaxCodeBlock';
 import { StudySlidesDeck } from './components/StudySlidesDeck';
 import { CheatSheetsCatalog } from './components/CheatSheetsCatalog';
+import { BaseConversionCalculator } from './components/BaseConversionCalculator';
 
 /** Clave utilizada en `localStorage` para persistir los IDs de los módulos completados por el estudiante. */
 const COMPLETED_MODULES_STORAGE_KEY = 'programacion_c_completed_modules';
@@ -693,10 +694,10 @@ export function App() {
 
               <div className="space-y-6">
                 {currentDeepChapters.map((chapter) => (
-                  <article
-                    key={chapter.id}
-                    className="bg-slate-950/90 border border-slate-800 rounded-2xl p-5 space-y-4"
-                  >
+                  <React.Fragment key={chapter.id}>
+                    <article
+                      className="bg-slate-950/90 border border-slate-800 rounded-2xl p-5 space-y-4"
+                    >
                     <div>
                       <span className="text-xs font-mono font-bold uppercase px-2.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                         {chapter.chapterNumber}
@@ -821,7 +822,13 @@ export function App() {
                       ))}
                     </div>
                   </article>
-                ))}
+
+                  {/* Calculadora interactiva pedagógica Decimal <-> Binario <-> Hexadecimal entre Capítulos 0.1 y 0.2 */}
+                  {currentModule.id === 0 && chapter.id === 'm0-c1' && (
+                    <BaseConversionCalculator />
+                  )}
+                </React.Fragment>
+              ))}
               </div>
               </div>
             </section>
