@@ -1,6 +1,6 @@
 /**
  * @file curriculumData.ts
- * @description Plan de estudios estructurado en 12 Módulos (`Módulo 0` a `Módulo 11`),
+ * @description Plan de estudios estructurado en 22 Módulos (`Módulo 0` a `Módulo 21`),
  * desde los fundamentos de memoria, punteros y estructuras en C hasta arquitectura de
  * periféricos, linker scripts, bootloaders y normativa aeroespacial/defensa (ECSS / NASA / DO-178C).
  *
@@ -102,284 +102,662 @@ export interface CourseModule {
 }
 
 /**
- * Lista ordenada de los 12 módulos del programa formativo (`Módulo 0` a `Módulo 11`).
+ * Lista ordenada de los 22 módulos del programa formativo (`Módulo 0` a `Módulo 11`).
  * Nota de mantenimiento: añadir nuevos módulos siempre al final del array conservando intactos los previos.
  */
 export const COURSE_MODULES: CourseModule[] = [
-  {
+{
     id: 0,
-    slug: 'fundamentos-lenguaje-c-variables-funciones-punteros-structs',
-    title: 'Módulo 0: Teoría Base de C — Variables, Funciones, Punteros y Estructuras',
-    subtitle: 'Cómo funcionan de verdad en memoria las variables, el sistema hexadecimal, las funciones, los punteros (& y *) y las estructuras (struct y ->) antes de tocar el hardware',
+    slug: 'fundamentos-c-silicio-tipos-datos',
+    title: 'Módulo 0: El Alfabeto del Silicio — Bits, Bytes, Tipos (<stdint.h>) y Memoria',
+    subtitle: 'Qué es físicamente un bit y un byte en transistores, sistema hexadecimal, Complemento a Dos, literales tipados (U/UL) y el operador compile-time sizeof()',
     level: 'Fundamentos',
-    duration: '60 min',
+    duration: '45 min',
     recommendedLab: 'c-memory-pointers',
     superficialMyth:
-      'En los cursos de C de escritorio te enseñan variables, punteros y structs con ejemplos abstractos de "alumnos y notas" usando printf() y scanf(), sin mostrarte jamás cómo ocupan bytes reales en las direcciones de memoria.',
+      'En los tutoriales para principiantes usan "int" para todo, enseñan variables abstractas con printf() y te dicen que sizeof() es una función lenta que se ejecuta en la CPU.',
     overwhelmingDatasheet:
-      'Cuando abres código embebido ves ((GPIO_TypeDef *)0x40020000UL)->ODR |= (1U << 5); o funciones void hal_init(const uart_cfg_t *cfg) y parece otro idioma porque nadie te enlazó la sintaxis de C con las direcciones físicas.',
+      'Abres el Reference Manual y ves tablas de alineación de memoria, registros de 8, 16 y 32 bits, sufijos 0x...UL y diagramas Little-Endian de bytes en SRAM.',
     theBridgeExplanation:
-      'Toda la magia de C se resume en una sola idea: la memoria del microcontrolador es un casillero gigante numerado byte a byte (en hexadecimal: 0x00, 0x01, 0x02...). 1) Una VARIABLE es ponerle nombre humano a una casilla. 2) Una FUNCIÓN es un bloque de instrucciones reutilizable al que es mejor pasarle la dirección de los datos (un puntero) que copiar cientos de bytes. 3) Un PUNTERO es simplemente una variable que guarda el número de casilla (la dirección) de otra variable: con "&" preguntas en qué casilla vive y con "*" abres esa casilla. 4) Un STRUCT es un molde de varias casillas seguidas, y la flecha "->" sirve para acceder a una casilla del molde a través de un puntero.',
+      'En el interior de un microcontrolador solo existen voltajes: 0V (Bit 0) o 3.3V/5V (Bit 1). Ocho transistores forman 1 Byte. El sistema Hexadecimal (0x...) es simplemente una forma compacta de escribir grupos de 4 bits (nibbles). Los tipos de <stdint.h> (uint8_t, uint16_t, uint32_t) garantizan el número exacto de bits en cualquier arquitectura. Y el operador sizeof() NO es una función: es resuelto 100% por el compilador con 0 ciclos de CPU y 0 bytes de RAM.',
     keyTakeaways: [
       {
-        title: '1. Variables, Bytes, Hexadecimal (0x...) y el Operador sizeof()',
+        title: '1. Variables, Bytes y Hexadecimal (Por qué usamos 0x...)',
         concept:
-          'Cada byte tiene 8 bits. Un dígito hexadecimal representa exactamente 4 bits (1 nibble) y dos dígitos (0xFF) representan exactamente 1 byte. Además, sizeof(T) NO es una función que gaste ciclos de CPU en tiempo de ejecución: es un operador del compilador que se evalúa durante la compilación con 0 ciclos de CPU y 0 bytes de RAM.',
-        codeSnippet: `uint8_t  un_byte     = 0xFFU;        // 8 bits  (1 byte  en RAM, 0..255)\nuint16_t dos_bytes   = 0x1234U;      // 16 bits (2 bytes en RAM, 0..65535)\nuint32_t cuatro_bytes = 0x40020014UL; // 32 bits (4 bytes en RAM)\n\n// sizeof() se resuelve al compilar:\nuint32_t tam_int = sizeof(uint32_t); // El compilador escribe directamente un 4`
+          'Cada byte tiene 8 bits. Un dígito hexadecimal representa exactamente 4 bits (1 nibble: 0..15 / 0x0..0xF) y dos dígitos hexadecimales (0xFF) representan exactamente 1 byte (8 bits). Las direcciones de memoria y registros se escriben siempre en hexadecimal por legibilidad.',
+        codeSnippet: `uint8_t  un_byte       = 0xFFU;        // 8 bits  (1 byte  en RAM: 0..255)\nuint16_t dos_bytes     = 0x1234U;      // 16 bits (2 bytes en RAM: 0..65535)\nuint32_t cuatro_bytes  = 0x40020014UL; // 32 bits (4 bytes en RAM)`
       },
       {
-        title: '2. Punteros Físicos: Operador Dirección (&) vs Desreferencia (*)',
+        title: '2. Tipos de Ancho Fijo (<stdint.h>) y Complemento a Dos',
         concept:
-          'Si pasas una variable normal a una función, C hace una copia temporal (Paso por Valor) y no cambia la original. Si le pasas su dirección con "&" (Paso por Referencia mediante Puntero), la función usa "*" para entrar dentro de esa casilla física de memoria y modificar el valor original en su casilla de RAM.',
-        codeSnippet: `void triplicar_en_sitio(uint32_t *p_num) {\n    *p_num = (*p_num) * 3U; // '*' entra en la dirección y cambia el valor real\n}\n\nvoid main_demo(void) {\n    uint32_t rpm = 100U;\n    triplicar_en_sitio(&rpm); // '&' entrega la dirección donde vive 'rpm'\n    // ¡Ahora rpm vale 300!\n}`
+          'El tipo "int" de C clásico cambia de tamaño según el chip (16 bits en ATmega328P, 32 bits en STM32/ESP32). En sistemas embebidos usamos siempre <stdint.h>. Para números negativos, la CPU usa Complemento a Dos: invierte todos los bits (~) y suma 1.',
+        codeSnippet: `int8_t temp_celsius = -5; // En memoria de 8 bits se guarda 0xFB (0b11111011)\nuint32_t timestamp  = 84000000UL; // 32 bits sin signo garantizados`
       },
       {
-        title: '3. Despiece del Puntero MMIO, "volatile", "const *" vs "* const" y "(void)var"',
+        title: '3. Literales Tipados (U, UL, ULL) y Prevención de Desbordamiento',
         concept:
-          'Despiezamos la fórmula más importante de C embebido (*(volatile uint32_t *)0x40020014UL): 1) El número 0x40020014UL es la dirección física de silicio. 2) (volatile uint32_t *) es el casteo a puntero que le dice al compilador "esta casilla cambia sola por hardware, nunca la borres ni la guardes en caché". 3) El asterisco exterior * entra en el registro para leer o escribir. Además, "const uint32_t *p" indica que el dato en Flash es constante, mientras que "uint32_t * const p" indica que la dirección del registro es fija. Finalmente, "(void)var;" se usa para silenciar advertencias de variables no usadas y para realizar lecturas dummy de bus.',
-        codeSnippet: `// 1. Despiece canónico del registro de hardware:\n#define GPIOA_ODR (*(volatile uint32_t *)0x40020014UL)\n\n// 2. Diferencia entre const * y * const:\nconst uint8_t *p_flash = &tabla_sensores[0];  // Dato constante (en Flash), puntero móvil\nuint32_t * const p_reg = (uint32_t *)0x40020014UL; // Dirección fija en silicio, dato variable\n\n// 3. Silenciar variable no usada o lectura dummy de bus:\n(void)p_flash; // Silencia el warning del compilador -Wunused-variable`
+          'En C estándar, un número desnudo como 1 es un signed int. Desplazarlo al bit 31 (1 << 31) provoca desbordamiento de signo (Undefined Behavior según ISO C y MISRA-C 10.1). Usar sufijos como 1UL fuerza la evaluación a 32 bits sin signo.',
+        codeSnippet: `uint32_t mascara_ok = (1UL << 31); // 0x80000000 seguro y sin signo\nuint32_t reloj_hz   = 84000000UL;  // Long sin signo explícito`
       },
       {
-        title: '4. Estructuras (struct), typedef, Padding y el Operador Flecha (->)',
+        title: '4. El Operador sizeof() en Tiempo de Compilación (0 Ciclos, 0 RAM)',
         concept:
-          'Un struct agrupa varias variables en direcciones contiguas de memoria. Cuando tienes la estructura usas el punto (sensor.temp), pero cuando tienes un PUNTERO a la estructura usas la flecha (p_sensor->temp). ¡Así es exactamente como se controlan los periféricos en C!',
-        codeSnippet: `typedef struct {\n    volatile uint32_t MODER; // Offset +0 bytes\n    volatile uint32_t ODR;   // Offset +4 bytes\n} Puerto_t;\n\nPuerto_t * const p_puerto = (Puerto_t *)0x40020000UL;\np_puerto->ODR = 1U; // Acceso por puntero con FLECHA (->) ¡Equivale a (*p_puerto).ODR!`
+          'sizeof(T) NO es una función que gaste ciclos de reloj ni memoria en ejecución: es un operador intrínseco del compilador que se evalúa durante la compilación, reemplazando la llamada por un número entero constante inmediato.',
+        codeSnippet: `// El compilador escribe directamente un 4 en código máquina:\nuint32_t bytes_u32 = sizeof(uint32_t); // 0 ciclos de CPU y 0 bytes de RAM`
       },
       {
-        title: '5. Sufijos de Literales (U, UL) y las 6 Operaciones Sagradas de Bits',
+        title: '5. El Preprocesador de C (#define y Header Guards)',
         concept:
-          'En C estándar, un número sin sufijo (como 1) es un entero con signo (signed int). Desplazarlo al bit 31 (1 << 31) provoca desbordamiento de signo y Comportamiento Indefinido (Undefined Behavior). Por eso en sistemas embebidos SIEMPRE usamos sufijos: "U" (Unsigned) y "UL" (Unsigned Long, 32 bits garantizados en cualquier arquitectura). Con ellos dominas las 6 operaciones elementales sobre cualquier registro.',
-        codeSnippet: `// Las 6 Operaciones Sagradas para copiar en el Cuaderno Físico:\nREG |=  (1UL << n);             // 1. SET: Poner bit n a 1 (x | 0 = x)\nREG &= ~(1UL << n);             // 2. CLEAR: Poner bit n a 0 con NOT (~)\nREG ^=  (1UL << n);             // 3. TOGGLE: Conmutar bit n (0->1 o 1->0 con XOR)\nuint32_t b = (REG >> n) & 1UL;  // 4. READ: Extraer el valor del bit (devuelve 0 o 1)\nif ((REG & (1UL << n)) != 0UL)  // 5. TEST 1: Comprobar si el bit está activo\nif ((REG & (1UL << n)) == 0UL)  // 6. TEST 0: Comprobar si el bit está en bajo (ej. pulsador)`
+          'Las directivas del preprocesador (#define, #ifndef, #endif) son sustituciones textuales puras antes de compilar que no consumen memoria. Se usan para dar nombres claros a constantes y evitar inclusiones dobles en cabeceras .h.',
+        codeSnippet: `#define F_CPU_HZ    (84000000UL)\n#define BIT_MASK(n) (1UL << (n))\n\n#ifndef MI_DRIVER_H\n#define MI_DRIVER_H\n// Declaraciones de tipos y prototipos\n#endif`
       }
     ],
     mcuCode: {
       atmega328p: {
-        rawPointer: `// ATmega328P (8-bit): Tamaño de Punteros y Variables en SRAM
+        rawPointer: `// ATmega328P: Tamaños de tipos en arquitectura AVR de 8 bits
 #include <stdint.h>
 
-// 1. Variable global (vive en SRAM a partir de la dirección 0x0100):
-uint8_t velocidad_motor = 50U;
-
-void actualizar_velocidad(uint8_t *p_vel, uint8_t nueva) {
-    // p_vel ocupa 2 bytes (16 bits) porque el mapa de RAM de AVR tiene direcciones de 16 bits
-    *p_vel = nueva; // Escribe 'nueva' dentro de la dirección apuntada por p_vel
-}
-
-void demo_avr(void) {
-    actualizar_velocidad(&velocidad_motor, 120U);
+void demo_tipos_avr(void) {
+    // uint8_t mide 1 byte (0..255)
+    uint8_t sensor_val = 200U;
+    // uint16_t mide 2 bytes (0..65535)
+    uint16_t adc_raw = 1023U;
+    // uint32_t mide 4 bytes (requiere 4 registros de 8 bits en AVR: R25:R24:R23:R22)
+    uint32_t millis_count = 100000UL;
+    
+    // sizeof() resuelto en compilación:
+    uint8_t tam = sizeof(uint16_t); // El compilador escribe un 2 directo
+    (void)sensor_val;
+    (void)adc_raw;
+    (void)millis_count;
+    (void)tam;
 }`,
-        cmsisStruct: `// Agrupando un puerto de 8 bits de AVR con un struct C:
+        cmsisStruct: `// AVR: Literales sin signo para registros de 8 bits
+#define F_CPU 16000000UL // Reloj de 16 MHz con sufijo UL
+
+void demo_literales_avr(void) {
+    uint8_t mask = (1U << 5); // Bit 5 sin signo
+    (void)mask;
+}`,
+        proDriver: `// Cabecera limpia con Header Guards para AVR:
+#ifndef TIPOS_AVR_H
+#define TIPOS_AVR_H
+
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef struct {
-    volatile uint8_t PIN;   // Offset +0 (ej. 0x23 PINB)
-    volatile uint8_t DDR;   // Offset +1 (ej. 0x24 DDRB)
-    volatile uint8_t PORT;  // Offset +2 (ej. 0x25 PORTB)
-} AVR_Port_t;
+    uint16_t tick_ms;
+    bool     activo;
+} sensor_cfg_t;
 
-void configurar_puerto_con_flecha(void) {
-    // Creamos un puntero que apunta a donde empieza el Puerto B (0x23):
-    AVR_Port_t * const puerto_b = (AVR_Port_t *)0x23U;
-
-    puerto_b->DDR  |= (1U << 5); // Accede a 0x23 + 1 = 0x24 (DDRB)
-    puerto_b->PORT |= (1U << 5); // Accede a 0x23 + 2 = 0x25 (PORTB)
-}`,
-        proDriver: `// Paso de estructuras de configuración por puntero constante (const struct *):
-typedef struct {
-    uint16_t baudrate;
-    uint8_t  paridad;
-    uint8_t  bits_datos;
-} uart_config_t;
-
-// Al usar 'const uart_config_t *cfg', solo pasamos 2 bytes de dirección en vez de copiar todo el struct:
-void uart_init(const uart_config_t *cfg) {
-    uint16_t b = cfg->baudrate; // Leemos con el operador flecha (->)
-    (void)b;
-}`,
-        asmInsight: 'En el ATmega328P los punteros miden 16 bits (2 bytes) y se cargan en las parejas de registros X (R27:R26), Y (R29:R28) o Z (R31:R30).',
-        hardwareNote: 'Entender que puerto_b->PORT simplemente suma el offset +2 a la dirección base 0x23 te desvela cómo funcionan todas las librerías de hardware.'
+#endif`,
+        asmInsight: 'En AVR de 8 bits, operaciones de 32 bits consumen 4 registros de CPU acoplados (ej. R18, R19, R20, R21).',
+        hardwareNote: 'El tipo "int" en ATmega328P mide solo 16 bits; por eso es vital usar <stdint.h> para garantizar portabilidad.'
       },
       stm32f401: {
-        rawPointer: `// STM32F401 (32-bit ARM): Variables, Punteros de 32 bits y Aritmética de Direcciones
+        rawPointer: `// STM32F401 (32-bit ARM): Tipos, Literales UL y sizeof
 #include <stdint.h>
 
-uint32_t lectura_sensor = 1024UL; // Ocupa 4 bytes en SRAM (ej. 0x20000000..0x20000003)
-
-void modificar_por_puntero(void) {
-    // 1. Declaramos un puntero p que guarda la dirección de 'lectura_sensor':
-    uint32_t *p = &lectura_sensor;
-
-    // 2. Desreferenciamos con '*' para cambiar el contenido de esa dirección:
-    *p = 2048UL; // Ahora lectura_sensor vale 2048
+void demo_tipos_stm32(void) {
+    uint32_t nucleo_hz = 84000000UL; // 84 MHz (32 bits)
+    uint32_t mask31    = (1UL << 31); // Bit 31 sin desbordamiento de signo
+    
+    // sizeof() evalúa el tamaño sin emitir instrucciones de salto:
+    uint32_t bytes = sizeof(uint32_t); // Devuelve 4 literal
+    (void)nucleo_hz;
+    (void)mask31;
+    (void)bytes;
 }`,
-        cmsisStruct: `// El secreto mejor guardado de STM32 (CMSIS): ¿Qué es realmente "GPIOA->ODR"?
+        cmsisStruct: `// Literales canónicos en CMSIS para ARM Cortex-M:
+#define RCC_CR_HSION_Pos  (0U)
+#define RCC_CR_HSION_Msk  (0x1UL << RCC_CR_HSION_Pos)
+#define RCC_CR_HSION      RCC_CR_HSION_Msk`,
+        proDriver: `// Arquitectura defensiva con asertos estáticos en tiempo de compilación:
 #include <stdint.h>
 
-typedef struct {
-    volatile uint32_t MODER;   // +0x00 (4 bytes)
-    volatile uint32_t OTYPER;  // +0x04 (4 bytes)
-    volatile uint32_t OSPEEDR; // +0x08 (4 bytes)
-    volatile uint32_t PUPDR;   // +0x0C (4 bytes)
-    volatile uint32_t IDR;     // +0x10 (4 bytes)
-    volatile uint32_t ODR;     // +0x14 (4 bytes -> 20 en decimal)
-    volatile uint32_t BSRR;    // +0x18 (4 bytes -> 24 en decimal)
-} GPIO_TypeDef;
-
-// GPIOA es simplemente la dirección 0x40020000 convertida en puntero a ese struct:
-#define GPIOA  ((GPIO_TypeDef *)0x40020000UL)
-
-void encender_led(void) {
-    // Al usar la flecha (->), C suma automáticamente 0x40020000 + 0x14 = 0x40020014:
-    GPIOA->ODR |= (1UL << 5);
-}`,
-        proDriver: `// Uso de "static" en C Embebido (Encapsulación y Estado Persistente):
-static uint32_t llamadas_totales = 0UL; // 'static' fuera de función = privada a este archivo .c
-
-uint32_t contar_pulsos(void) {
-    static uint32_t acumulado = 0UL; // 'static' dentro de función = no se borra al salir!
-    acumulado++;
-    return acumulado;
-}`,
-        asmInsight: 'En un procesador de 32 bits como ARM Cortex-M4, todos los punteros (uint8_t *, uint32_t *, struct *) ocupan exactamente 4 bytes (32 bits).',
-        hardwareNote: 'Fíjate cómo en GPIO_TypeDef cada uint32_t ocupa 4 bytes, por eso los offsets van de 4 en 4 (+0x00, +0x04, +0x08, +0x0C, +0x10, +0x14).'
+// _Static_assert verifica tamaños en compilación sin gastar CPU:
+_Static_assert(sizeof(uint32_t) == 4U, "Error: uint32_t debe medir exactamente 4 bytes");`,
+        asmInsight: 'En ARM Cortex-M4, cargar una constante de 32 bits usa la instrucción LDR R0, [PC, #offset] desde el Literal Pool.',
+        hardwareNote: 'En Little-Endian, el byte 0x78 del número 0x12345678 se guarda en la dirección más baja de la SRAM (ej. 0x20000000).'
       },
       esp32c3: {
-        rawPointer: `// ESP32-C3 (32-bit RISC-V): Arrays, Punteros y Recorrido de Buffers
+        rawPointer: `// ESP32-C3 (32-bit RISC-V): Representación en memoria
 #include <stdint.h>
 
-void procesar_trama_bytes(const uint8_t *buffer, uint32_t longitud) {
-    // En C, el nombre de un array es la dirección de su primer elemento (&buffer[0])
-    for (uint32_t i = 0; i < longitud; i++) {
-        uint8_t byte_actual = *(buffer + i); // Idéntico a escribir buffer[i]
-        (void)byte_actual;
-    }
+void demo_riscv_types(void) {
+    uint32_t ciclo_cpu = 160000000UL; // 160 MHz
+    int8_t   temp_offset = -10;       // Complemento a dos (0xF6)
+    (void)ciclo_cpu;
+    (void)temp_offset;
 }`,
-        cmsisStruct: `// En ESP-IDF se combinan 'struct' y 'union' para acceder o bien al registro entero
-// de 32 bits (.val) o bien a un campo individual de bits:
+        cmsisStruct: `// Constantes de reloj en ESP-IDF / RISC-V:
+#define MHZ (1000000UL)
+#define CPU_FREQ_HZ (160UL * MHZ)`,
+        proDriver: `// Driver tipado en RISC-V:
 #include <stdint.h>
+#include <stdbool.h>
 
-typedef union {
-    struct {
-        uint32_t pin0_out : 1; // 1 bit
-        uint32_t pin1_out : 1; // 1 bit
-        uint32_t resto    : 30;
-    };
-    uint32_t val;              // Los 32 bits completos en la misma dirección
-} registro_dual_t;`,
-        proDriver: `// Retorno de códigos de estado (esp_err_t) + salida por puntero:
-typedef int32_t err_t;
+typedef uint32_t system_tick_t;
 
-err_t leer_temperatura_i2c(int16_t *p_resultado_out) {
-    if (p_resultado_out == (void *)0) {
-        return -1; // ¡Siempre verificar que el puntero no sea NULL antes de usar *!
-    }
-    *p_resultado_out = 245; // 24.5 °C escritos en la variable del llamador
-    return 0;               // 0 = Éxito (ESP_OK)
+bool es_tiempo_cumplido(system_tick_t actual, system_tick_t limite) {
+    return (actual >= limite);
 }`,
-        asmInsight: 'En C una función solo puede devolver 1 valor con return; por eso en la industria devolvemos el código de error por return y entregamos los datos leídos a través de punteros.',
-        hardwareNote: 'La unión (union) permite que dos miembros compartan exactamente la misma dirección de memoria.'
+        asmInsight: 'En RISC-V RV32IMC, constantes de 32 bits se generan con la pareja de instrucciones LUI (Load Upper Immediate) y ADDI.',
+        hardwareNote: 'El bus del ESP32-C3 es de 32 bits; lecturas desalineadas en memoria son gestionadas con ciclos de penalización.'
       },
       nrf52840: {
-        rawPointer: `// nRF52840: Punteros y Arrays en Registros de Configuración
+        rawPointer: `// nRF52840: Little Endian y tipos de bajo consumo
 #include <stdint.h>
 
-void array_y_punteros_demo(void) {
-    uint32_t mediciones[4] = { 100UL, 200UL, 300UL, 400UL };
-    uint32_t *ptr = mediciones; // Apunta a mediciones[0]
-
-    // Como ptr es uint32_t* (4 bytes), sumar 1 a ptr avanza 4 bytes en RAM:
-    uint32_t segundo = *(ptr + 1); // Lee mediciones[1] (200)
-    (void)segundo;
+void demo_nrf_types(void) {
+    uint32_t ble_interval = 1600UL; // 1 segundo en ticks de 0.625ms
+    (void)ble_interval;
 }`,
-        cmsisStruct: `// En Nordic, el puerto GPIO usa un array dentro de un struct:
+        cmsisStruct: `// CMSIS Nordic SDK:
+#define NRF_CLOCK_LFCLK_FREQ (32768UL)`,
+        proDriver: `// Tipos seguros para protocolos inalámbricos:
+#include <stdint.h>
+
 typedef struct {
-    volatile uint32_t OUT;         // +0x504
-    volatile uint32_t OUTSET;      // +0x508
-    volatile uint32_t OUTCLR;      // +0x50C
-    volatile uint32_t IN;          // +0x510
-    volatile uint32_t DIR;         // +0x514
-    volatile uint32_t PIN_CNF[32]; // Array de 32 registros (uno por cada pin P0.00..P0.31)
-} NRF_GPIO_Mini_t;`,
-        proDriver: `// Punteros a Funciones (Callbacks de Eventos en BLE y Sensores):
-typedef void (*evento_callback_t)(uint8_t pin, uint32_t timestamp);
-
-void registrar_manejador(evento_callback_t cb) {
-    if (cb != 0) {
-        cb(13U, 10500UL); // Invoca la función cuya dirección nos pasaron por parámetro!
-    }
-}`,
-        asmInsight: '¡Regla clave de aritmética de punteros!: sumar +1 a un uint8_t* suma 1 byte a la dirección, pero sumar +1 a un uint32_t* suma 4 bytes a la dirección.',
-        hardwareNote: 'Los punteros a funciones permiten que un driver avise a tu aplicación cuando llega un paquete Bluetooth sin acoplar ambos archivos.'
+    uint16_t conn_interval;
+    uint16_t slave_latency;
+    uint16_t sup_timeout;
+} ble_gap_conn_params_t;`,
+        asmInsight: 'El Cortex-M4F de Nordic cuenta con instrucciones SIMD de 32 bits que operan dos enteros de 16 bits en paralelo.',
+        hardwareNote: 'El oscilador de 32.768 kHz (LFCLK) es la referencia de tiempo fundamental para los modos de Ultra-Low-Power.'
       },
       rp2040: {
-        rawPointer: `// RP2040: Punteros Constantes vs Punteros a Datos Constantes
+        rawPointer: `// RP2040: Tipos en Dual-Core Cortex-M0+
 #include <stdint.h>
 
-void diferencias_const_punteros(void) {
-    uint32_t dato = 10UL;
-
-    // 1. Puntero a constante (No puedes cambiar *p1, pero sí a dónde apunta p1):
-    const uint32_t *p1 = &dato;
-
-    // 2. Puntero constante (Siempre apunta a la misma dirección física, ej. un periférico):
-    volatile uint32_t * const reg_sio = (volatile uint32_t *)0xD0000014UL;
-    *reg_sio = (1UL << 5);
-    (void)p1;
+void demo_rp2040_types(void) {
+    uint32_t sys_clk = 133000000UL; // 133 MHz
+    (void)sys_clk;
 }`,
-        cmsisStruct: `// En el SDK de Raspberry Pi Pico, cada periférico tiene su struct terminado en _hw_t:
-typedef struct {
-    volatile uint32_t ctrl;
-    volatile uint32_t status;
-} io_pin_ctrl_t;
+        cmsisStruct: `// SDK RP2040 (hardware/regs/addressmap.h):
+#define SIO_BASE 0xd0000000UL`,
+        proDriver: `// Tipado para periféricos PIO en RP2040:
+#include <stdint.h>
 
 typedef struct {
-    io_pin_ctrl_t io[30]; // Array de 30 structs (uno por cada pin GPIO0..GPIO29)
-} iobank0_hw_t;
-
-#define iobank0_hw ((iobank0_hw_t *)0x40014000UL)
-// Uso combinando flecha (->), array ([5]) y punto (.):
-// iobank0_hw->io[5].ctrl = 5UL;`,
-        proDriver: `// Empaquetado y Alineación de Estructuras en Memoria (Padding):
-typedef struct {
-    uint32_t id_mensaje; // 4 bytes
-    uint16_t crc;        // 2 bytes
-    uint8_t  tipo;       // 1 byte
-    uint8_t  longitud;   // 1 byte -> Total = 8 bytes exactos sin huecos (padding)!
-} trama_can_t;`,
-        asmInsight: 'Ordenar los miembros de un struct de mayor a menor tamaño (uint32_t primero, luego uint16_t y al final uint8_t) evita que el compilador inserte bytes vacíos de relleno (padding) en RAM.',
-        hardwareNote: 'Mira la expresión iobank0_hw->io[5].ctrl: usa "->" porque iobank0_hw es un puntero, y luego usa "." porque io[5] ya es el struct en sí.'
+    uint32_t pin_mask;
+    uint8_t  sm_index;
+} pio_config_t;`,
+        asmInsight: 'En ARM Cortex-M0+ las instrucciones son de 16 bits (Thumb clásico); cargar constantes usa LDR con pool en Flash.',
+        hardwareNote: 'El RP2040 cuenta con memoria ROM de arranque de 16 KB en 0x00000000 con rutinas de punto flotante aceleradas.'
       }
     },
     challenge: {
-      question: 'Reto de Fundamentos C — Punteros (& vs *) y el Operador Flecha (->)',
-      scenario:
-        'Tienes definida una estructura typedef struct { volatile uint32_t MODER; volatile uint32_t ODR; } GPIO_t; y declaras un puntero que apunta a la dirección base del Puerto A: GPIO_t *puertoA = (GPIO_t *)0x40020000UL; ¿Cuáles dos expresiones son 100% equivalentes y correctas en C para escribir en el miembro ODR a través de ese puntero?',
+      question: '¿Por qué escribir (1 << 31) en lugar de (1UL << 31) es un error crítico en sistemas embebidos de 32 bits?',
+      scenario: 'Un programador escribe uint32_t mask = (1 << 31); para configurar la interrupción del bit 31. Al compilar con optimización -O2 el programa falla impredeciblemente.',
       options: [
         {
           id: 'a',
-          label: 'puertoA.ODR = 0x20;  y  &puertoA->ODR = 0x20;',
-          isCorrect: false,
-          feedback: 'Como puertoA es un PUNTERO a struct (no el struct directo), no puedes usar el punto (puertoA.ODR) directamente sin desreferenciarlo antes.'
+          label: 'Porque el literal 1 sin sufijo es un entero con signo (signed int); desplazarlo 31 posiciones invade el bit de signo negativo, produciendo desbordamiento y Comportamiento Indefinido (MISRA-C Regla 10.1).',
+          isCorrect: true,
+          feedback: '¡Exacto! El estándar ISO C clasifica el desbordamiento de enteros con signo como Undefined Behavior. Con 1UL garantizas evaluación limpia sin signo.'
         },
         {
           id: 'b',
-          label: 'puertoA->ODR = 0x20;  y  (*puertoA).ODR = 0x20;',
-          isCorrect: true,
-          feedback: '¡Exacto! El operador flecha (puertoA->ODR) existe en C precisamente como un atajo limpio y legible para desreferenciar el puntero y acceder al campo: (*puertoA).ODR.'
+          label: 'Porque el operador << solo admite desplazamientos de hasta 16 posiciones.',
+          isCorrect: false,
+          feedback: 'En una CPU de 32 bits puedes desplazar hasta 31 posiciones, siempre que el tipo sea sin signo.'
         },
         {
           id: 'c',
-          label: '*puertoA.ODR = 0x20;  y  puertoA = 0x20;',
+          label: 'Porque la CPU no tiene instrucciones de desplazamiento a la izquierda.',
           isCorrect: false,
-          feedback: 'Cuidado con la precedencia de operadores: en *puertoA.ODR el punto tiene más prioridad que el asterisco, por lo que son obligatorios los paréntesis (*puertoA).ODR o usar la flecha ->.'
+          feedback: 'Todas las CPUs tienen instrucciones LSL (Logical Shift Left).'
         }
       ]
     }
   },
-  {
+
+{
     id: 1,
+    slug: 'punteros-memoria-mmio-calificadores',
+    title: 'Módulo 1: Punteros Físicos, Memoria MMIO y Calificadores Básicos',
+    subtitle: 'Desmitificando & y *, paso por referencia, el despiece en 3 capas de (*(volatile uint32_t *)0x...), la regla de const y el silenciamiento (void)',
+    level: 'Fundamentos',
+    duration: '50 min',
+    recommendedLab: 'c-memory-pointers',
+    superficialMyth:
+      'Te dicen que los punteros solo sirven para arrays dinámicos con malloc() y que desreferenciar con * es peligroso y abstracto.',
+    overwhelmingDatasheet:
+      'Ves en el firmware oficial: (*(volatile uint32_t *)0x40020014UL) = 0x01; o void init(const uint8_t * const p) y parece un galimatías incomprensible.',
+    theBridgeExplanation:
+      'Un puntero es simplemente una variable que guarda el número de casilla de otra casilla de memoria. Con "&" preguntas la dirección física y con "*" entras dentro para leer o escribir. En sistemas embebidos, los registros de hardware no son más que direcciones fijas de memoria: despiezar la fórmula (*(volatile uint32_t *)0x40020014UL) en 3 capas te da la llave para controlar cualquier circuito del planeta.',
+    keyTakeaways: [
+      {
+        title: '1. Punteros Físicos: Operador Dirección (&) vs Desreferencia (*)',
+        concept:
+          'Si pasas una variable normal a una función, C crea una copia temporal en la pila (Stack). Si le pasas su dirección con "&", la función usa "*" para entrar dentro de esa casilla física de memoria y modificar el valor original en su casilla de RAM en 1 solo ciclo.',
+        codeSnippet: `void triplicar_en_sitio(uint32_t *p_num) {\n    *p_num = (*p_num) * 3U; // '*' entra en la dirección y cambia el valor real\n}\n\nvoid main_demo(void) {\n    uint32_t rpm = 100U;\n    triplicar_en_sitio(&rpm); // '&' entrega la dirección donde vive 'rpm'\n    // ¡Ahora rpm vale 300!\n}`
+      },
+      {
+        title: '2. Despiece del Puntero MMIO en 3 Capas (*(volatile uint32_t *)0x...)',
+        concept:
+          'Despiezamos la fórmula canónica de hardware: 1) Capa 1: Coordenada numérica hexadecimal (0x40020014UL). 2) Capa 2: Molde a puntero volátil (volatile uint32_t *), que prohíbe la caché en registros de la CPU. 3) Capa 3: Asterisco exterior * que desreferencia el bus para leer o escribir en silicio.',
+        codeSnippet: `// 1. Capa 1: Dirección física del registro en el bus\n// 2. Capa 2: Molde de puntero volátil\n// 3. Capa 3: Asterisco de acceso al hardware\n#define GPIOA_ODR (*(volatile uint32_t *)0x40020014UL)\n\nGPIOA_ODR |= (1UL << 5); // Enciende el pin PA5`
+      },
+      {
+        title: '3. El Calificador "volatile" Básico',
+        concept:
+          'El calificador "volatile" le ordena formalmente al optimizador del compilador (-O2): "Esta dirección puede cambiar sola por hardware o tiene efectos colaterales físicos; prohíbete guardar su valor en registros internos (R0-R12) y prohíbete eliminar lecturas o escrituras consecutivas".',
+        codeSnippet: `volatile uint32_t *p_reg = (volatile uint32_t *)0x40020010UL;\n// El compilador emitirá obligatoriamente una instrucción LDR al bus en cada lectura:\nuint32_t estado_pin = *p_reg;`
+      },
+      {
+        title: '4. Regla de "const" con Punteros y la Técnica "(void)variable;"',
+        concept:
+          'Si const está antes de *, el dato está congelado en Flash (const uint8_t *p). Si const está después de *, la dirección es fija de hardware (uint32_t * const p). Además, (void)variable; se usa para silenciar warnings (-Wunused) y realizar lecturas dummy de bus que esperan 2 ciclos tras encender relojes en RCC.',
+        codeSnippet: `const uint8_t *p_flash = &tabla_sensores[0];  // Dato constante en Flash\nuint32_t * const p_reg = (uint32_t *)0x40020014UL; // Dirección física fija\n\n// Lectura dummy de bus obligatoria en RCC:\n(void)RCC->AHB1ENR; // Espera 2 ciclos de bus APB/AHB antes de usar el periférico`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Punteros de 16 bits y acceso directo MMIO
+#include <stdint.h>
+
+void demo_punteros_avr(void) {
+    // 1. Puntero a dirección física de PORTB (0x0025 en memoria de datos SRAM):
+    volatile uint8_t * const p_portb = (volatile uint8_t *)0x25U;
+    
+    // 2. Encender pin 5 a través del puntero:
+    *p_portb |= (1U << 5);
+}`,
+        cmsisStruct: `// Macro canónica de avr-libc (<avr/io.h>):
+#define _MMIO_BYTE(mem_addr) (*(volatile uint8_t *)(mem_addr))
+#define PORTB _MMIO_BYTE(0x25)`,
+        proDriver: `// Driver con paso por referencia y silenciamiento de warnings:
+#include <stdint.h>
+
+void calibrar_sensor(uint16_t *p_offset, uint8_t canal) {
+    (void)canal; // Silencia el warning de canal no usado
+    if (p_offset != 0) {
+        *p_offset = 512U;
+    }
+}`,
+        asmInsight: 'En AVR los punteros ocupan 2 bytes (16 bits) y se manipulan mediante los registros índice X, Y y Z con instrucciones LD/ST.',
+        hardwareNote: 'El mapa de datos de AVR ubica los registros de I/O en los primeros 64 bytes (0x0020 a 0x005F).'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401: Despiece de puntero MMIO y lectura dummy de bus
+#include <stdint.h>
+
+#define RCC_AHB1ENR_ADDR  (0x40023830UL)
+#define GPIOA_ODR_ADDR    (0x40020014UL)
+
+void encender_pa5_raw(void) {
+    // 1. Puntero constante a registro de reloj:
+    volatile uint32_t * const p_rcc = (volatile uint32_t *)RCC_AHB1ENR_ADDR;
+    *p_rcc |= (1UL << 0); // Activa reloj de GPIOA
+    
+    // 2. Lectura dummy para estabilización de 2 ciclos de bus AHB1:
+    (void)*p_rcc;
+    
+    // 3. Escribir en GPIOA_ODR desreferenciando la dirección física:
+    (*(volatile uint32_t *)GPIOA_ODR_ADDR) |= (1UL << 5);
+}`,
+        cmsisStruct: `// Cómo CMSIS envuelve el puntero crudo:
+#include "stm32f4xx.h"
+
+void demo_cmsis_ptr(void) {
+    volatile uint32_t *odr_ptr = &(GPIOA->ODR);
+    *odr_ptr |= (1UL << 5);
+}`,
+        proDriver: `// Función profesional con const pointer a datos en Flash:
+#include <stdint.h>
+#include <stdbool.h>
+
+static const uint8_t TABLA_SENSORES[4] = { 10U, 20U, 30U, 40U };
+
+bool leer_tabla(const uint8_t * const tabla, uint8_t idx, uint8_t *out_val) {
+    if (tabla == 0 || out_val == 0 || idx >= 4U) return false;
+    *out_val = *(tabla + idx); // Aritmética de punteros
+    return true;
+}`,
+        asmInsight: 'En ARM Cortex-M4, la instrucción STR R1, [R0, #0] almacena un registro de 32 bits en la dirección apuntada en 1 o 2 ciclos.',
+        hardwareNote: 'Sin la lectura dummy de bus (void)*p_rcc, una CPU rápida a 84 MHz intentará acceder a GPIOA antes de que su reloj responda, causando un BusFault.'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3: Punteros crudos a registros GPIO en RISC-V
+#include <stdint.h>
+
+#define GPIO_OUT_W1TS_REG (*(volatile uint32_t *)0x60004008UL)
+
+void encender_gpio4_riscv(void) {
+    GPIO_OUT_W1TS_REG = (1UL << 4); // Escritura directa en registro atómico
+}`,
+        cmsisStruct: `// Struct de punteros en ESP-IDF:
+#include "soc/gpio_struct.h"
+
+void demo_esp32_ptr(void) {
+    GPIO.out_w1ts.val = (1UL << 4);
+}`,
+        proDriver: `// Función de recorrido de buffer por puntero:
+#include <stdint.h>
+
+uint32_t calcular_checksum(const uint8_t *p_buf, uint32_t len) {
+    uint32_t sum = 0;
+    while (len--) {
+        sum += *p_buf++; // Desreferencia y avanza el puntero
+    }
+    return sum;
+}`,
+        asmInsight: 'En RISC-V, LW (Load Word) y SW (Store Word) realizan transferencias directas de 32 bits hacia la dirección en el registro a0.',
+        hardwareNote: 'El bus de periféricos del ESP32-C3 opera a 80 MHz independientemente de la frecuencia de la CPU.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: Punteros MMIO a puertos P0 y P1
+#include <stdint.h>
+
+#define NRF_P0_OUTSET_ADDR (0x50000508UL)
+
+void nrf_pin_high(uint8_t pin) {
+    volatile uint32_t * const p_outset = (volatile uint32_t *)NRF_P0_OUTSET_ADDR;
+    *p_outset = (1UL << pin);
+}`,
+        cmsisStruct: `// Acceso mediante CMSIS Nordic:
+#include "nrf.h"
+
+void demo_nrf_cmsis(void) {
+    NRF_P0->OUTSET = (1UL << 13);
+}`,
+        proDriver: `// Puntero constante a periférico de bajo consumo:
+#include <stdint.h>
+
+void nrf_config_output(volatile uint32_t * const dirset_reg, uint8_t pin) {
+    *dirset_reg = (1UL << pin);
+}`,
+        asmInsight: 'Los periféricos de nRF52 mapeados en 0x50000000 son accesibles en 1 ciclo de reloj de bus AHB.',
+        hardwareNote: 'Nordic cuenta con registros OUTSET y OUTCLR independientes para evitar operaciones Read-Modify-Write.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040: Puntero a registro de bus SIO de ciclo único
+#include <stdint.h>
+
+#define SIO_GPIO_OUT_SET_REG (*(volatile uint32_t *)0xd0000014UL)
+
+void rp2040_led_high(void) {
+    SIO_GPIO_OUT_SET_REG = (1UL << 25); // Pin 25 en 1 ciclo de CPU
+}`,
+        cmsisStruct: `// Acceso a SIO mediante struct en SDK de Raspberry Pi:
+#include "hardware/structs/sio.h"
+
+void demo_rp2040_sio(void) {
+    sio_hw->gpio_set = (1UL << 25);
+}`,
+        proDriver: `// Driver con comprobación de punteros y (void)var:
+#include <stdint.h>
+#include <stdbool.h>
+
+bool write_pin_safe(volatile uint32_t *reg, uint8_t pin) {
+    if (reg == 0 || pin > 29U) return false;
+    *reg = (1UL << pin);
+    return true;
+}`,
+        asmInsight: 'El bus SIO en RP2040 está conectado directamente al núcleo Cortex-M0+, ejecutando lecturas y escrituras en 1 solo ciclo.',
+        hardwareNote: 'El espacio de memoria 0xd0000000 (SIO) no pasa por el bus crossbar general, garantizando latencia cero.'
+      }
+    },
+    challenge: {
+      question: '¿Qué desastre ocurre si olvidas el calificador volatile al definir un puntero a un registro de hardware que lee el estado de un pin (ej. uint32_t *p_idr = 0x40020010;)?',
+      scenario: 'El programa entra en un bucle while ((*p_idr & (1<<0)) == 0); esperando a que el usuario pulse un botón. Compilando con -O2, el botón se pulsa pero el bucle nunca termina.',
+      options: [
+        {
+          id: 'a',
+          label: 'El optimizador asume que el valor en esa dirección de memoria no puede cambiar por sí solo; lee el registro una única vez en un registro de la CPU (R0) y repite la comprobación sobre R0 para siempre, dejando al firmware ciego ante el mundo real.',
+          isCorrect: true,
+          feedback: '¡Correcto! Esa es la razón de ser de volatile: obliga al compilador a emitir una lectura física al bus en cada iteración del bucle.'
+        },
+        {
+          id: 'b',
+          label: 'El microcontrolador se apaga por sobretensión en el bus.',
+          isCorrect: false,
+          feedback: 'El compilador no afecta a la tensión del hardware; el fallo es de optimización de código.'
+        },
+        {
+          id: 'c',
+          label: 'El Linker emite un error de símbolo duplicado.',
+          isCorrect: false,
+          feedback: 'El error ocurre en tiempo de ejecución, el Linker no se queja.'
+        }
+      ]
+    }
+  },
+
+{
+    id: 2,
+    slug: 'estructuras-padding-alineacion-uniones',
+    title: 'Módulo 2: Estructuras (struct), Padding, Alineación y Uniones (union)',
+    subtitle: 'Alineación de memoria a 32 bits, bytes de relleno (padding), el operador flecha (->), uniones para decodificar tramas y structs de periféricos CMSIS',
+    level: 'Fundamentos',
+    duration: '45 min',
+    recommendedLab: 'c-memory-pointers',
+    superficialMyth:
+      'Te dicen que un struct solo es una lista de variables agrupadas y que su tamaño en memoria es la suma directa de sus campos.',
+    overwhelmingDatasheet:
+      'Ves en CMSIS: typedef struct { __IO uint32_t MODER; __IO uint32_t ODR; } GPIO_TypeDef; con offsets de 4 en 4 bytes y advertencias de padding en la memoria.',
+    theBridgeExplanation:
+      'Una CPU de 32 bits lee palabras de 32 bits (4 bytes) mucho más rápido si su dirección es múltiplo de 4. Por eso el compilador añade silenciosamente bytes vacíos de relleno (Padding) entre variables si no las ordenas bien. Un struct empaqueta variables contiguas, y la flecha "->" permite acceder a cada miembro a través de un puntero. ¡Así es como los fabricantes mapean periféricos enteros con un solo puntero a la dirección base!',
+    keyTakeaways: [
+      {
+        title: '1. Estructuras (struct), typedef y el Operador Flecha (->)',
+        concept:
+          'Un struct agrupa varias variables en casillas contiguas de memoria. Si accedes desde una variable normal usas el punto (sensor.temp), pero si accedes a través de un PUNTERO al struct usas la flecha (p_sensor->temp). Es azúcar sintáctico de (*p_sensor).temp.',
+        codeSnippet: `typedef struct {\n    uint16_t rpm;\n    int8_t   temperatura;\n} motor_t;\n\nmotor_t m1;\nmotor_t *p = &m1;\np->rpm = 3000U; // Acceso por puntero con FLECHA (->)`
+      },
+      {
+        title: '2. Alineación de Memoria y Padding en Arquitecturas de 32 Bits',
+        concept:
+          'En un ARM Cortex-M o RISC-V, un uint32_t debe colocarse en una dirección múltiplo de 4. Si pones un uint8_t seguido de un uint32_t, el compilador insertará 3 bytes de relleno (Padding) invisibles. Regla de oro: ordena los campos de mayor a menor tamaño para ahorrar RAM.',
+        codeSnippet: `// ❌ Gasta 8 bytes (3 bytes de padding desperdiciados):\nstruct Mal  { uint8_t a; uint32_t b; };\n\n// ✅ Gasta 8 bytes pero sin huecos absurdos:\nstruct Bien { uint32_t b; uint8_t a; uint8_t c; };`
+      },
+      {
+        title: '3. Uniones (union): Multivisión de los Mismos Bytes en Memoria',
+        concept:
+          'A diferencia de un struct, todos los miembros de una unión comparten exactamente la MISMA dirección de inicio de memoria. Permite ver un número de 32 bits como 4 bytes individuales para transmitirlos por UART/SPI sin necesidad de conversiones.',
+        codeSnippet: `typedef union {\n    uint32_t palabra;\n    uint8_t  bytes[4];\n} conv32_t;\n\nconv32_t u;\nu.palabra = 0x12345678UL;\n// u.bytes[0] contiene 0x78 (en Little-Endian)`
+      },
+      {
+        title: '4. Mapeo CMSIS: Estructuras de Periféricos con Offsets del Datasheet',
+        concept:
+          'Los fabricantes crean un struct con miembros uint32_t que replican exactamente la tabla de offsets del Datasheet. Luego definen un puntero constante a la dirección base del periférico. Al escribir GPIOA->ODR, el procesador suma automáticamente el offset +0x14.',
+        codeSnippet: `typedef struct {\n    volatile uint32_t MODER;   // Offset +0x00\n    volatile uint32_t OTYPER;  // Offset +0x04\n    volatile uint32_t OSPEEDR; // Offset +0x08\n    volatile uint32_t PUPDR;   // Offset +0x0C\n    volatile uint32_t IDR;     // Offset +0x10\n    volatile uint32_t ODR;     // Offset +0x14\n} GPIO_TypeDef;\n\n#define GPIOA ((GPIO_TypeDef *)0x40020000UL)\nGPIOA->ODR |= (1UL << 5);`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Estructura de puerto I/O de 8 bits
+#include <stdint.h>
+
+typedef struct {
+    volatile uint8_t PIN;  // +0x00
+    volatile uint8_t DDR;  // +0x01
+    volatile uint8_t PORT; // +0x02
+} AVR_GPIO_t;
+
+void demo_struct_avr(void) {
+    AVR_GPIO_t * const p_portb = (AVR_GPIO_t *)0x23U;
+    p_portb->DDR  |= (1U << 5); // Salida en PB5
+    p_portb->PORT |= (1U << 5); // Nivel alto en PB5
+}`,
+        cmsisStruct: `// Emulando struct CMSIS en AVR:
+#define PORTB_STRUCT ((AVR_GPIO_t *)0x23U)`,
+        proDriver: `// Estructura de configuración empaquetada:
+#include <stdint.h>
+
+typedef struct __attribute__((packed)) {
+    uint8_t  cmd;
+    uint16_t checksum;
+} telemetria_pkt_t;`,
+        asmInsight: 'En AVR de 8 bits no hay restricciones de alineación; las variables pueden ubicarse en cualquier dirección par o impar.',
+        hardwareNote: 'El acceso por struct en AVR genera instrucciones LDD/STD con desplazamiento relativo al registro Z (ej. STD Z+2, R24).'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401: Estructura CMSIS y alineación de 4 bytes
+#include <stdint.h>
+
+typedef struct {
+    volatile uint32_t MODER;   // Offset +0x00
+    volatile uint32_t OTYPER;  // Offset +0x04
+    volatile uint32_t OSPEEDR; // Offset +0x08
+    volatile uint32_t PUPDR;   // Offset +0x0C
+    volatile uint32_t IDR;     // Offset +0x10
+    volatile uint32_t ODR;     // Offset +0x14
+    volatile uint32_t BSRR;    // Offset +0x18
+} Mi_GPIO_TypeDef;
+
+#define MI_GPIOA ((Mi_GPIO_TypeDef *)0x40020000UL)
+
+void encender_led_struct(void) {
+    MI_GPIOA->ODR |= (1UL << 5); // Suma automática de 0x40020000 + 0x14
+}`,
+        cmsisStruct: `// En stm32f401xe.h oficial:
+#include "stm32f4xx.h"
+
+void demo_stm32_cmsis_struct(void) {
+    GPIOA->BSRR = (1UL << 5); // Acceso con flecha al registro atómico BSRR
+}`,
+        proDriver: `// Unión para decodificar registros de control de 32 bits:
+#include <stdint.h>
+
+typedef union {
+    uint32_t reg_val;
+    struct {
+        uint32_t enable     : 1;
+        uint32_t mode       : 2;
+        uint32_t prescaler  : 3;
+        uint32_t reserved   : 26;
+    } bits;
+} ctrl_reg_t;`,
+        asmInsight: 'En ARM Thumb-2, la instrucción STR R1, [R0, #0x14] suma el offset constante de forma inmediata sin gastar instrucciones aritméticas extra.',
+        hardwareNote: 'Todos los registros de periféricos en STM32 están alineados a 32 bits (offsets múltiplos de 4).'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3: Mapeo de periféricos mediante structs en RISC-V
+#include <stdint.h>
+
+typedef struct {
+    volatile uint32_t bt_select;      // +0x00
+    volatile uint32_t out;            // +0x04
+    volatile uint32_t out_w1ts;       // +0x08
+    volatile uint32_t out_w1tc;       // +0x0C
+} esp32c3_gpio_reg_t;
+
+#define ESP32_GPIO ((esp32c3_gpio_reg_t *)0x60004000UL)`,
+        cmsisStruct: `// Struct oficial en ESP-IDF:
+#include "soc/gpio_struct.h"
+
+void demo_esp_struct(void) {
+    GPIO.out_w1ts.val = (1UL << 5);
+}`,
+        proDriver: `// Unión para serialización de paquetes de red:
+#include <stdint.h>
+
+typedef union {
+    float    temperatura_f;
+    uint8_t  bytes[4];
+} float_codec_t;`,
+        asmInsight: 'En RISC-V, acceder a un miembro de struct usa la instrucción SW rs2, offset(rs1) con offset inmediato de 12 bits.',
+        hardwareNote: 'El bus interno del ESP32-C3 no soporta escrituras de 8 bits en ciertos registros de control; deben accederse como 32 bits completos.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: Estructura de puerto P0
+#include <stdint.h>
+
+typedef struct {
+    uint32_t RESERVED[321]; // Hueco de offsets
+    volatile uint32_t OUT;        // +0x504
+    volatile uint32_t OUTSET;     // +0x508
+    volatile uint32_t OUTCLR;     // +0x50C
+    volatile uint32_t IN;         // +0x510
+    volatile uint32_t DIR;        // +0x514
+    volatile uint32_t DIRSET;     // +0x518
+    volatile uint32_t DIRCLR;     // +0x51C
+} NRF_P0_Regs_t;`,
+        cmsisStruct: `// Struct oficial en Nordic SDK:
+#include "nrf.h"
+
+void demo_nrf_struct(void) {
+    NRF_P0->OUTSET = (1UL << 13);
+}`,
+        proDriver: `// Struct con alineación natural para transferencias EasyDMA:
+#include <stdint.h>
+
+typedef struct {
+    uint8_t  *p_buffer;
+    uint16_t max_len;
+    uint16_t amount;
+} easydma_desc_t;`,
+        asmInsight: 'El controlador EasyDMA de Nordic requiere que los descriptores en RAM estén alineados a 4 bytes.',
+        hardwareNote: 'El array RESERVED[] en el struct de Nordic rellena los huecos de direcciones entre el bloque de control y los registros de datos.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040: Estructura de registros SIO en Cortex-M0+
+#include <stdint.h>
+
+typedef struct {
+    volatile uint32_t cpuid;          // +0x00
+    volatile uint32_t gpio_in;        // +0x04
+    volatile uint32_t gpio_hi_in;     // +0x08
+    uint32_t          _pad0;
+    volatile uint32_t gpio_out;       // +0x10
+    volatile uint32_t gpio_set;       // +0x14
+    volatile uint32_t gpio_clr;       // +0x18
+    volatile uint32_t gpio_togl;      // +0x1c
+} SIO_TypeDef;
+
+#define SIO_REGS ((SIO_TypeDef *)0xd0000000UL)`,
+        cmsisStruct: `// SDK de Raspberry Pi pico:
+#include "hardware/structs/sio.h"
+
+void demo_rp2040_struct(void) {
+    sio_hw->gpio_set = (1UL << 25);
+}`,
+        proDriver: `// Estructura de interpolador de hardware de RP2040:
+#include <stdint.h>
+
+typedef struct {
+    uint32_t accum[2];
+    uint32_t base[3];
+    uint32_t pop[3];
+} interp_hw_t;`,
+        asmInsight: 'En Cortex-M0+, la instrucción LDR R0, [R1, #offset] solo admite offsets múltiplos de 4 de hasta 124 bytes.',
+        hardwareNote: 'Los registros del bloque SIO no sufren contención de bus; ambos núcleos pueden escribir en ellos simultáneamente.'
+      }
+    },
+    challenge: {
+      question: 'Declaras struct Medida { uint8_t id; uint32_t valor; uint8_t flags; }; en un procesador de 32 bits. ¿Cuánto vale sizeof(struct Medida) y por qué?',
+      scenario: 'Un programador espera que la estructura mida 1 + 4 + 1 = 6 bytes. Al enviar 100 muestras por UART enviando sizeof(struct Medida) se transmiten muchos más bytes de los esperados.',
+      options: [
+        {
+          id: 'a',
+          label: 'Mide 12 bytes: el compilador inserta 3 bytes de padding tras "id" para alinear "valor" a una dirección múltiplo de 4, y 3 bytes de padding al final para que los arrays de structs conserven la alineación.',
+          isCorrect: true,
+          feedback: '¡Exacto! El padding añade 3 + 3 = 6 bytes de relleno inútiles. Reordenando los campos a { uint32_t valor; uint8_t id; uint8_t flags; } el tamaño cae a 8 bytes.'
+        },
+        {
+          id: 'b',
+          label: 'Mide 6 bytes exactos porque el compilador jamás añade datos no solicitados.',
+          isCorrect: false,
+          feedback: 'Falso. Las arquitecturas de 32 bits exigen alineación de palabras por motivos de velocidad y hardware.'
+        },
+        {
+          id: 'c',
+          label: 'Mide 16 bytes porque todo struct se redondea a potencia de dos.',
+          isCorrect: false,
+          feedback: 'No se redondea a potencia de dos, sino al múltiplo del miembro más ancho (4 bytes en este caso).'
+        }
+      ]
+    }
+  },
+
+{
+    id: 3,
     slug: 'c-para-hardware-bits-y-punteros',
-    title: 'Módulo 1: Manipulación de Bits y Registros de Hardware',
+    title: 'Módulo 3: Manipulación de Bits en Hardware — Gimnasio de Bits y Macros MISRA-C',
     subtitle: 'Gimnasio de Bits, Desplazamiento Lógico vs Aritmético (>>), Máscaras Multi-Bit, Macros MISRA-C y Punteros MMIO',
     level: 'Fundamentos',
     duration: '45 min',
@@ -580,10 +958,10 @@ void rp2040_bit_magic(void) {
     }
   },
 
-  {
-    id: 2,
+{
+    id: 4,
     slug: 'arquitectura-mapa-memoria-y-relojes-rcc',
-    title: 'Módulo 2: Mapa de Memoria, Buses y el Secreto del Reloj (RCC)',
+    title: 'Módulo 4: Mapa de Memoria, Buses y el Secreto del Reloj (RCC)',
     subtitle: 'Dónde viven Flash, RAM y Periféricos, y por qué un chip industrial de 32 bits ignora tu código si no activas el Clock Gate',
     level: 'Fundamentos',
     duration: '50 min',
@@ -747,10 +1125,10 @@ void __not_in_flash_func(fast_control_loop)(void) {
     }
   },
 
-  {
-    id: 3,
+{
+    id: 5,
     slug: 'gpio-a-nivel-silicio-transistores-y-atomicidad',
-    title: 'Módulo 3: GPIO a Nivel de Silicio — MOSFETs, Open-Drain y Escritura Atómica',
+    title: 'Módulo 5: GPIO a Nivel de Silicio — MOSFETs, Open-Drain y Escritura Atómica',
     subtitle: 'Qué ocurre eléctricamente dentro del pin (Push-Pull vs Open-Drain, Pull-Up/Down) y cómo evitar corromper puertos con BSRR / W1TS',
     level: 'Intermedio',
     duration: '60 min',
@@ -957,10 +1335,10 @@ void rp2040_enable_pullup(uint8_t pin) {
     }
   },
 
-  {
-    id: 4,
+{
+    id: 6,
     slug: 'compilador-volatile-interrupciones-nvic-y-stack',
-    title: 'Módulo 4: El Misterio de "volatile", Interrupciones (ISR) y el NVIC',
+    title: 'Módulo 6: El Misterio de "volatile", Interrupciones (ISR) y el NVIC',
     subtitle: 'Por qué el compilador con -O2 rompe tu código si olvidas volatile, y qué ocurre exactamente en la pila (Stack) cuando salta una interrupción',
     level: 'Intermedio',
     duration: '65 min',
@@ -1158,10 +1536,10 @@ void isr_io_bank0(void) {
     }
   },
 
-  {
-    id: 5,
+{
+    id: 7,
     slug: 'timers-contadores-y-pwm-por-hardware',
-    title: 'Módulo 5: Timers, Prescalers y PWM 100% por Hardware',
+    title: 'Módulo 7: Timers, Prescalers y PWM 100% por Hardware',
     subtitle: 'Por qué usar delay() es un pecado en la industria y cómo generar señales precisas al microsegundo con PSC, ARR y CCR',
     level: 'Avanzado',
     duration: '55 min',
@@ -1347,11 +1725,11 @@ void rp2040_set_pwm_b(uint16_t cc_val) {
     }
   },
 
-  {
-    id: 6,
-    slug: 'protocolos-serie-uart-i2c-spi',
-    title: 'Módulo 6: Protocolos de Comunicación en Serie (UART, I2C, SPI)',
-    subtitle: 'Cómo viajan los bytes bit a bit por el cable, registros de desplazamiento (Shift Registers) y banderas TXE / RXNE / ACK',
+{
+    id: 8,
+    slug: 'protocolos-serie-uart-asincrona-fifo',
+    title: 'Módulo 8: Protocolos Serie I — UART Asíncrona, Baud Rates y Buffers FIFO Circulares',
+    subtitle: 'Cómo viajan los bytes bit a bit sin cable de reloj, sobremuestreo x16, divisores USART_BRR y recepción por interrupción con Ring Buffer FIFO',
     level: 'Avanzado',
     duration: '70 min',
     recommendedLab: 'logic-analyzer',
@@ -1540,11 +1918,204 @@ bool rp2040_uart0_readable(void) {
     }
   },
 
-  {
-    id: 7,
-    slug: 'adc-y-acceso-directo-a-memoria-dma',
-    title: 'Módulo 7: Mundo Analógico (ADC) y Acceso Directo a Memoria (DMA)',
-    subtitle: 'Cómo digitalizar sensores analógicos con un ADC SAR y mover miles de muestras por segundo a la RAM con 0% de intervención de la CPU',
+{
+    id: 9,
+    slug: 'protocolos-serie-i2c-spi-sincronos',
+    title: 'Módulo 9: Protocolos Serie II — Buses Síncronos I2C (Open-Drain) y SPI (Alta Velocidad)',
+    subtitle: 'Lógica Open-Drain con Pull-Up y ACK/NACK en I2C frente a registros de desplazamiento Full-Duplex y Chip Select a MHz en SPI',
+    level: 'Avanzado',
+    duration: '70 min',
+    recommendedLab: 'logic-analyzer',
+    superficialMyth:
+      'Usas Serial.println(), Wire.write() o SPI.transfer() como cajas negras sin saber qué aspecto tiene la señal eléctrica ni cómo diagnosticar por qué un sensor I2C no responde.',
+    overwhelmingDatasheet:
+      'Tablas de temporización de nanosegundos, diagramas de fases CPOL/CPHA, cálculo de divisores fraccionales USART_BRR y máquinas de estado I2C EV5, EV6, EV8_2.',
+    theBridgeExplanation:
+      'Dentro de cualquier periférico UART, I2C o SPI hay un "Registro de Desplazamiento" (Shift Register): tú escribes un byte entero de 8 bits en paralelo en el registro de datos (DR) en 1 ciclo de CPU, y el periférico se encarga de empujar esos 8 bits uno detrás de otro por el pin físico al ritmo exacto del reloj acordado. Mientras el periférico está sacando los bits por el cable, levanta una bandera en su Registro de Estado (SR). Cuando el buffer queda libre para otro byte, el hardware pone a 1 la bandera TXE (Transmit Data Register Empty).',
+    keyTakeaways: [
+      {
+        title: '1. UART (Asíncrono): Sin cable de reloj, sincronizado por Bit de Start',
+        concept: 'La línea TX reposa en ALTO (3.3V). Para avisar que empieza un byte, cae a 0V durante 1 tiempo de bit (Start Bit), luego salen los 8 bits del dato empezando por el menos significativo (LSB First: bit 0 al bit 7), y termina subiendo a 3.3V en el Stop Bit.',
+        codeSnippet: `void uart2_send_byte(uint8_t byte) {\n    // 1. Esperar a que el registro de transmisión esté vacío (Bit 7 TXE == 1):\n    while ((USART2->SR & (1UL << 7)) == 0UL) { }\n    // 2. Entregar el byte al hardware (él añadirá Start y Stop bit solo):\n    USART2->DR = byte;\n}`
+      },
+      {
+        title: '2. I2C (Síncrono Bus Compartido): 2 Cables (SDA + SCL) en Open-Drain',
+        concept: 'Permite conectar hasta 127 sensores en los mismos 2 cables. Empieza con una condición START (SDA baja mientras SCL está alto), envía los 7 bits de dirección del sensor + 1 bit R/W, y en el 9º pulso de reloj suelta el cable SDA para comprobar si el sensor tira la línea a 0V (bit ACK).',
+        codeSnippet: `// Si ningún sensor tira SDA a 0V en el 9º pulso de reloj, recibes un NACK:\n// Causas reales del 99% de fallos I2C:\n// 1) Olvidar resistencias Pull-Up (4.7k) | 2) Dirección desplazada (7-bit vs 8-bit)`
+      },
+      {
+        title: '3. SPI (Síncrono Alta Velocidad Full-Duplex): Intercambio Circular',
+        concept: 'En SPI no existe "solo enviar" o "solo recibir": cada vez que el Maestro genera 8 pulsos en SCK, empuja 8 bits por MOSI hacia el Esclavo y simultáneamente recibe 8 bits por MISO desde el Esclavo.',
+        codeSnippet: `uint8_t spi1_transfer(uint8_t tx_byte) {\n    while (!(SPI1->SR & SPI_SR_TXE)) { }\n    SPI1->DR = tx_byte;                  // Inicia 8 pulsos de reloj SCK\n    while (!(SPI1->SR & SPI_SR_RXNE)) { } // Espera a que entren los 8 bits de MISO\n    return (uint8_t)SPI1->DR;            // Devuelve el byte recibido simultáneamente\n}`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Transmisión UART0 por registros directos (0xC0..0xC6)
+#define UCSR0A_REG (*(volatile uint8_t *)0xC0)
+#define UCSR0B_REG (*(volatile uint8_t *)0xC1)
+#define UBRR0L_REG (*(volatile uint8_t *)0xC4)
+#define UDR0_REG   (*(volatile uint8_t *)0xC6)
+
+void avr_uart_init_9600(void) {
+    UBRR0L_REG = 103U;       // 16MHz / (16 * 9600) - 1 = 103
+    UCSR0B_REG = (1U << 3);  // TXEN0 = 1: Habilita transmisor UART
+}
+
+void avr_uart_putc(char c) {
+    while ((UCSR0A_REG & (1U << 5)) == 0U) { } // Espera UDRE0 (Data Register Empty)
+    UDR0_REG = (uint8_t)c;
+}`,
+        cmsisStruct: `#include <avr/io.h>
+
+uint8_t avr_spi_transfer(uint8_t data) {
+    SPDR = data;                      // Escribir en SPDR inicia los 8 pulsos de SCK
+    while (!(SPSR & (1U << SPIF))) {} // Espera bandera de fin de transferencia
+    return SPDR;                      // Lee el byte que entró por MISO
+}`,
+        proDriver: `void uart_print_str(const char *s) {
+    while (*s) {
+        avr_uart_putc(*s++);
+    }
+}`,
+        asmInsight: 'Observa que UDR0 (0xC6) tiene la misma dirección física para leer y escribir, pero internamente apunta a dos buffers separados: TXB al escribir y RXB al leer.',
+        hardwareNote: 'Puedes inspeccionar las tramas reales de UART, I2C y SPI bit a bit en el Analizador Lógico de abajo.'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401: Inicialización y envío en USART2 (42 MHz Bus APB1 -> 115200 baudios)
+#define USART2_SR   (*(volatile uint32_t *)0x40004400UL)
+#define USART2_DR   (*(volatile uint32_t *)0x40004404UL)
+#define USART2_BRR  (*(volatile uint32_t *)0x40004408UL)
+#define USART2_CR1  (*(volatile uint32_t *)0x4000440CUL)
+
+void stm32_usart2_init(void) {
+    // Divisor = 42.000.000 / (16 * 115200) = 22.786 -> Mantisa=22 (0x16), Fracción=13 (0xD)
+    USART2_BRR = (22UL << 4) | 13UL;
+    USART2_CR1 = (1UL << 13) | (1UL << 3) | (1UL << 2); // UE=1 (Enable), TE=1 (TX), RE=1 (RX)
+}
+
+void stm32_usart2_putc(uint8_t ch) {
+    while ((USART2_SR & (1UL << 7)) == 0UL) { } // Bit 7 = TXE
+    USART2_DR = ch;
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+uint8_t stm32_usart2_getc(void) {
+    while ((USART2->SR & USART_SR_RXNE) == 0UL) { } // Bit 5 = RXNE (Read Data Not Empty)
+    return (uint8_t)(USART2->DR & 0xFFUL);
+}`,
+        proDriver: `// Interfaz genérica polimórfica en C usando punteros a funciones (Estilo Industrial):
+typedef struct {
+    bool (*write)(const uint8_t *data, uint16_t len);
+    bool (*read)(uint8_t *data, uint16_t len);
+} serial_bus_i;`,
+        asmInsight: 'Leer USART2->DR limpia automáticamente la bandera RXNE en hardware sin necesidad de escribir en SR.',
+        hardwareNote: 'No olvides configurar los pines PA2 y PA3 en Modo Función Alternativa AF7 (MODER = 10, AFR[0] = 7).'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3: UART0 con FIFO de Hardware de 128 bytes (0x60000000)
+#define UART0_FIFO_REG   (*(volatile uint32_t *)0x60000000UL)
+#define UART0_STATUS_REG (*(volatile uint32_t *)0x6000001CUL)
+
+void esp32_uart0_write_byte(uint8_t b) {
+    // Bits [23:16] de STATUS indican cuántos bytes ocupan la TX FIFO (máx 128):
+    while (((UART0_STATUS_REG >> 16) & 0xFFUL) >= 126UL) { }
+    UART0_FIFO_REG = b;
+}`,
+        cmsisStruct: `#include "soc/uart_struct.h"
+
+void esp32_uart0_send_burst(const uint8_t *buf, uint32_t len) {
+    for (uint32_t i = 0; i < len; i++) {
+        UART0.fifo.rw_byte = buf[i]; // Entra directo en la cola FIFO de 128 bytes
+    }
+}`,
+        proDriver: `// La FIFO de 128 bytes en silicio permite enviar un mensaje entero de 100 caracteres
+// de golpe en microsegundos sin esperar a que salgan por el cable.`,
+        asmInsight: 'Tener una FIFO profunda en el periférico reduce drásticamente el número de interrupciones por segundo.',
+        hardwareNote: 'Además de la FIFO, el ESP32-C3 cuenta con un motor GDMA para tramas grandes de SPI y UART.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: UARTE0 con EasyDMA integrado (No necesitas empujar byte a byte!)
+#define UARTE0_TASKS_STARTTX (*(volatile uint32_t *)0x40002008UL)
+#define UARTE0_EVENTS_ENDTX  (*(volatile uint32_t *)0x40002120UL)
+#define UARTE0_ENABLE        (*(volatile uint32_t *)0x40002500UL)
+#define UARTE0_PSEL_TXD      (*(volatile uint32_t *)0x4000250CUL)
+#define UARTE0_BAUDRATE      (*(volatile uint32_t *)0x40002524UL)
+#define UARTE0_TXD_PTR       (*(volatile uint32_t *)0x40002544UL)
+#define UARTE0_TXD_MAXCNT    (*(volatile uint32_t *)0x40002548UL)
+
+void nrf_uarte_dma_send(const uint8_t *ram_buffer, uint32_t length) {
+    UARTE0_TXD_PTR       = (uint32_t)ram_buffer; // Dirección en SRAM
+    UARTE0_TXD_MAXCNT    = length;               // Cuántos bytes enviar
+    UARTE0_EVENTS_ENDTX  = 0UL;
+    UARTE0_TASKS_STARTTX = 1UL;                  // ¡El hardware lee la RAM y transmite todo!
+}`,
+        cmsisStruct: `#include "nrf.h"
+
+void nrf_twim_i2c_read_sensor(uint8_t i2c_addr7, uint8_t *rx_buf, uint32_t len) {
+    NRF_TWIM0->ADDRESS       = i2c_addr7; // Dirección de 7 bits limpia
+    NRF_TWIM0->RXD.PTR       = (uint32_t)rx_buf;
+    NRF_TWIM0->RXD.MAXCNT    = len;
+    NRF_TWIM0->TASKS_STARTRX = 1UL;
+}`,
+        proDriver: `// En Nordic todos los periféricos con sufijo "E" o "M" (UARTE, SPIM, TWIM)
+// operan exclusivamente mediante punteros EasyDMA a memoria RAM.`,
+        asmInsight: 'Para enviar 255 bytes por UART en un chip clásico haces 255 escrituras de CPU; en el nRF52840 haces 1 sola tarea TASKS_STARTTX.',
+        hardwareNote: 'Asegúrate de que el buffer pasado a TXD.PTR esté en SRAM (0x2000xxxx) y no en Flash.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040: UART0 (PrimeCell PL011 de ARM) con FIFOs de 32 bytes (0x40034000)
+#define UART0_DR  (*(volatile uint32_t *)0x40034000UL)
+#define UART0_FR  (*(volatile uint32_t *)0x40034018UL)
+
+void rp2040_uart0_putc(char c) {
+    // Bit 5 de FR (Flag Register) es TXFF (Transmit FIFO Full):
+    while ((UART0_FR & (1UL << 5)) != 0UL) { }
+    UART0_DR = (uint32_t)c;
+}`,
+        cmsisStruct: `#include "hardware/structs/uart.h"
+
+bool rp2040_uart0_readable(void) {
+    return (uart0_hw->fr & UART_UARTFR_RXFE_BITS) == 0UL; // RX FIFO Not Empty
+}`,
+        proDriver: `// Y si necesitas un 3er UART o un protocolo industrial a medida, las máquinas PIO
+// del RP2040 implementan un transmisor UART completo en solo 4 instrucciones PIO!`,
+        asmInsight: 'El bloque UART del RP2040 es la IP oficial ARM PrimeCell PL011, muy común también en SoCs industriales Cortex-A.',
+        hardwareNote: 'La bandera en PL011 funciona al revés que en STM32: miras que TXFF (FIFO Full) sea 0 antes de escribir.'
+      }
+    },
+    challenge: {
+      question: 'Reto de Analizador Lógico — Decodificando una Trama en el Cable',
+      scenario:
+        'Conectas un analizador lógico a una línea UART (8N1: 8 bits de datos, sin paridad, 1 bit de parada) para enviar el carácter ASCII \'A\' (0x41 = 0b01000001). Sabiendo que UART transmite primero el bit menos significativo (LSB first), ¿en qué orden exacto salen los bits por el pin TX después del Start Bit (0)?',
+      options: [
+        {
+          id: 'a',
+          label: 'Start(0) -> 0, 1, 0, 0, 0, 0, 0, 1 -> Stop(1)',
+          isCorrect: false,
+          feedback: 'Ese sería el orden MSB-first (el más significativo primero, que se usa en I2C). UART siempre envía el bit 0 (LSB) primero.'
+        },
+        {
+          id: 'b',
+          label: 'Start(0) -> 1, 0, 0, 0, 0, 0, 1, 0 -> Stop(1)',
+          isCorrect: true,
+          feedback: '¡Exacto! En 0x41 (0b01000001), el bit 0 vale 1, los bits 1..5 valen 0, el bit 6 vale 1 y el bit 7 vale 0. Puedes verlo dibujado en vivo en la pestaña "Analizador Lógico".'
+        },
+        {
+          id: 'c',
+          label: 'Envía los 8 bits a la vez por un solo cable usando distintos niveles de voltaje.',
+          isCorrect: false,
+          feedback: 'UART es binario digital (0V y 3.3V/5V): envía un bit detrás de otro en el tiempo.'
+        }
+      ]
+    }
+  },
+
+{
+    id: 10,
+    slug: 'mundo-analogico-conversor-sar-adc-filtros',
+    title: 'Módulo 10: Mundo Analógico — Conversor SAR ADC, Cuantización y Filtro Digital EMA',
+    subtitle: 'Cómo digitalizar sensores analógicos con un ADC SAR de 12 bits, cálculo de resolución, calibración con VREFINT y filtrado pasabajos',
     level: 'Experto Industrial',
     duration: '60 min',
     recommendedLab: 'memory-bus',
@@ -1724,10 +2295,194 @@ void rp2040_adc_dma_burst(uint16_t *dst_ram, uint32_t count) {
     }
   },
 
-  {
-    id: 8,
+{
+    id: 11,
+    slug: 'acceso-directo-memoria-dma-crossbar-pingpong',
+    title: 'Módulo 11: Acceso Directo a Memoria (DMA), Matriz de Buses Crossbar y Buffers Ping-Pong',
+    subtitle: 'Mover miles de muestras por segundo a la RAM con 0% de intervención de la CPU, modos circulares y buffers dobles Ping-Pong',
+    level: 'Experto Industrial',
+    duration: '60 min',
+    recommendedLab: 'memory-bus',
+    superficialMyth:
+      'En proyectos básicos llaman a analogRead(A0) en cada vuelta del loop, bloqueando la CPU durante más de 100 microsegundos por muestra.',
+    overwhelmingDatasheet:
+      'El capítulo de DMA habla de "Streams, Channels, Circular Buffer Mode, Memory-to-Peripheral, Peripheral-to-Memory, Half-Transfer IRQ y Bus Matrix Arbitration".',
+    theBridgeExplanation:
+      'El ADC mide un voltaje analógico (ej. de 0.0V a 3.3V) comparándolo con una escalera interna de condensadores (Aproximación Sucesiva SAR) y te devuelve un número entero (de 0 a 4095 en 12 bits). Pero si necesitas leer 10.000 muestras por segundo de un micrófono o sensor de corriente, la CPU no tendría tiempo para nada más si tuviera que copiar cada muestra a mano. Aquí entra el DMA (Direct Memory Access): un "coprocesador de mudanzas" al que le dices: "Cada vez que el ADC termine una conversión, copia tú mismo el valor desde la dirección fija ADC1->DR (0x4001204C) hacia mi array en RAM e incrementa el puntero de RAM en +1". ¡La CPU queda 100% libre!',
+    keyTakeaways: [
+      {
+        title: '1. Ecuación de Conversión Analógica a Digital (SAR ADC)',
+        concept: 'Un ADC de N bits divide el voltaje de referencia (Vref, típicamente 3.3V) en (2^N - 1) escalones discretos. En 10 bits son 1023 escalones; en 12 bits son 4095 escalones (resolución de ~0.8 milivoltios por paso).',
+        codeSnippet: `// Convertir lectura cruda del ADC de 12 bits (0..4095) a milivoltios sin usar float:\nuint32_t adc_raw = ADC1->DR;\nuint32_t millivolts = (adc_raw * 3300UL) / 4095UL; // Aritmética entera rápida!`
+      },
+      {
+        title: '2. Anatomía de una Transferencia DMA (Origen, Destino, Contador)',
+        concept: 'Cualquier controlador DMA del mundo se configura con 4 datos: 1) Dirección Origen (PAR), 2) Dirección Destino (M0AR), 3) Número de elementos a copiar (NDTR), y 4) Quién incrementa su dirección (el periférico queda fijo, la RAM se auto-incrementa).',
+        codeSnippet: `DMA2_Stream0->PAR  = (uint32_t)&ADC1->DR;       // Origen fijo: registro del ADC\nDMA2_Stream0->M0AR = (uint32_t)adc_ram_buffer;  // Destino: nuestro array en SRAM\nDMA2_Stream0->NDTR = 64U;                       // Copiar 64 muestras automáticamente`
+      },
+      {
+        title: '3. Modo Circular (Ring Buffer en Hardware)',
+        concept: 'Al activar el Modo Circular en el DMA, cuando termina de llenar la posición 63 de tu array en RAM, vuelve automáticamente a la posición 0 sin detenerse jamás. Así tienes siempre las últimas N lecturas de todos los sensores actualizadas en RAM sin escribir ni una línea de código en el bucle principal.',
+        codeSnippet: `volatile uint16_t sensores_live[4]; // El DMA actualiza este array en segundo plano!\n// En main() simplemente lees sensores_live[0] como una variable normal.`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: ADC de 10 bits (0..1023) — Sin controlador DMA (requiere CPU o ISR)
+#define ADMUX_REG  (*(volatile uint8_t *)0x7C)
+#define ADCSRA_REG (*(volatile uint8_t *)0x7A)
+#define ADC_WORD   (*(volatile uint16_t *)0x78)
+
+uint16_t avr_adc_read_ch0(void) {
+    ADMUX_REG  = (1U << 6) | 0U;              // Referencia AVCC (5V), Canal 0 (PC0)
+    ADCSRA_REG = (1U << 7) | (1U << 6) | 7U;  // ADEN=1, ADSC=1 (Start), Prescaler=128
+    while (ADCSRA_REG & (1U << 6)) { }        // Espera a que el bit ADSC vuelva a 0
+    return ADC_WORD;                          // Devuelve resultado de 10 bits (0..1023)
+}`,
+        cmsisStruct: `#include <avr/io.h>
+#include <avr/interrupt.h>
+
+// Como AVR no tiene DMA, para no bloquear main() usamos la interrupción ADC_vect:
+volatile uint16_t ultima_muestra_adc = 0;
+ISR(ADC_vect) {
+    ultima_muestra_adc = ADC;
+}`,
+        proDriver: `// Comparar el ATmega328P con un chip con DMA te demuestra por qué en aplicaciones
+// de audio o control rápido de motores es imprescindible contar con un controlador DMA.`,
+        asmInsight: 'Cada conversión del ADC en el ATmega328P tarda 13 ciclos del reloj ADC (~104 microsegundos), equivalentes a 1.664 ciclos de CPU.',
+        hardwareNote: 'La ausencia de DMA en el ATmega328P obliga a la CPU a intervenir en cada muestra.'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401: Configuración de DMA2_Stream0 para copiar de ADC1->DR a SRAM en Modo Circular
+#define DMA2_S0CR   (*(volatile uint32_t *)0x40026410UL)
+#define DMA2_S0NDTR (*(volatile uint32_t *)0x40026414UL)
+#define DMA2_S0PAR  (*(volatile uint32_t *)0x40026418UL)
+#define DMA2_S0M0AR (*(volatile uint32_t *)0x4002641CUL)
+#define ADC1_DR_ADDR 0x4001204CUL
+
+volatile uint16_t adc_dma_buf[16];
+
+void stm32_dma2_adc1_circular_init(void) {
+    DMA2_S0CR   &= ~(1UL << 0);             // 1. Asegurar que el Stream esté deshabilitado
+    DMA2_S0PAR   = ADC1_DR_ADDR;            // 2. Dirección del registro periférico ADC1->DR
+    DMA2_S0M0AR  = (uint32_t)adc_dma_buf;   // 3. Dirección del array en SRAM
+    DMA2_S0NDTR  = 16UL;                    // 4. 16 transferencias de 16 bits
+    // Canal 0, Tamaño 16-bit (MSIZE=01, PSIZE=01), Incremento RAM (MINC=1), Circular (CIRC=1):
+    DMA2_S0CR    = (1UL << 13) | (1UL << 11) | (1UL << 10) | (1UL << 8) | (1UL << 0);
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+void adc1_start_continuous_dma(void) {
+    ADC1->CR2 |= ADC_CR2_DMA | ADC_CR2_DDS | ADC_CR2_CONT | ADC_CR2_ADON;
+    ADC1->CR2 |= ADC_CR2_SWSTART; // Arranca el flujo perpetuo ADC -> DMA -> RAM
+}`,
+        proDriver: `// Técnica Industrial "Ping-Pong Buffer" (Half-Transfer + Transfer-Complete IRQ):
+// Mientras la CPU procesa la primera mitad del array [0..7], el DMA llena [8..15]!`,
+        asmInsight: 'La matriz de buses AHB del STM32F4 arbitra el acceso entre la CPU y el DMA2 para que ambos puedan trabajar sin bloquearse.',
+        hardwareNote: 'Recuerda declarar el buffer de destino como volatile cuando lo leas desde el hilo principal.'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3: Controlador GDMA (General Direct Memory Access) con Descriptores Enlazados
+#define GDMA_IN_LINK_CH0_REG (*(volatile uint32_t *)0x6003F020UL)
+
+typedef struct {
+    uint32_t size : 12;
+    uint32_t length : 12;
+    uint32_t reversed : 6;
+    uint32_t eof : 1;
+    uint32_t owner : 1; // 1 = Propiedad del hardware DMA, 0 = CPU
+    uint8_t *buf;
+    void *next;
+} dma_descriptor_t;`,
+        cmsisStruct: `// En ESP32 el DMA usa listas enlazadas de descriptores en RAM (scatter-gather):
+// Puedes encadenar múltiples buffers en anillo apuntando desc.next = &desc;`,
+        proDriver: `// El ADC continuo (DIG ADC) enía muestras directamente al motor GDMA a alta velocidad.`,
+        asmInsight: 'Los descriptores enlazados (Scatter-Gather DMA) permiten recolectar o transmitir paquetes fragmentados en memoria en una sola operación.',
+        hardwareNote: 'Los descriptores de GDMA deben estar alineados a 4 bytes en la memoria SRAM interna.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: SAADC (Successive Approximation ADC de 12 bits) con EasyDMA nativo
+#define SAADC_RESULT_PTR    (*(volatile uint32_t *)0x4000762CUL)
+#define SAADC_RESULT_MAXCNT (*(volatile uint32_t *)0x40007630UL)
+#define SAADC_TASKS_START   (*(volatile uint32_t *)0x40007000UL)
+#define SAADC_TASKS_SAMPLE  (*(volatile uint32_t *)0x40007004UL)
+
+volatile int16_t saadc_ram_samples[8];
+
+void nrf_saadc_dma_setup(void) {
+    SAADC_RESULT_PTR    = (uint32_t)saadc_ram_samples;
+    SAADC_RESULT_MAXCNT = 8UL;
+    SAADC_TASKS_START   = 1UL; // Prepara el puntero DMA en hardware
+}`,
+        cmsisStruct: `#include "nrf.h"
+
+// Combo maestro industrial en Nordic:
+// Un Timer dispara SAADC->TASKS_SAMPLE mediante un canal PPI cada 1 ms mientras la CPU duerme.
+// Solo cuando el DMA llena las 8 muestras en RAM se despierta la CPU una vez!`,
+        proDriver: `void connect_timer_to_adc_ppi(void) {
+    NRF_PPI->CH[1].EEP = (uint32_t)&NRF_TIMER1->EVENTS_COMPARE[0];
+    NRF_PPI->CH[1].TEP = (uint32_t)&NRF_SAADC->TASKS_SAMPLE;
+    NRF_PPI->CHENSET   = (1UL << 1);
+}`,
+        asmInsight: 'Combinar Timer + PPI + SAADC EasyDMA reduce el consumo de batería en un 95% frente a despertar la CPU en cada muestra.',
+        hardwareNote: 'El SAADC de Nordic devuelve enteros con signo de 16 bits (int16_t) porque soporta mediciones diferenciales.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040: ADC con FIFO + Controlador DMA de 12 canales (0x50000000)
+#define ADC_CS              (*(volatile uint32_t *)0x4004C000UL)
+#define ADC_FCS             (*(volatile uint32_t *)0x4004C008UL)
+#define ADC_FIFO_ADDR       0x4004C00CUL
+#define DMA_CH0_READ_ADDR   (*(volatile uint32_t *)0x50000000UL)
+#define DMA_CH0_WRITE_ADDR  (*(volatile uint32_t *)0x50000004UL)
+#define DMA_CH0_TRANS_COUNT (*(volatile uint32_t *)0x50000008UL)
+#define DMA_CH0_CTRL_TRIG   (*(volatile uint32_t *)0x5000000CUL)
+
+void rp2040_adc_dma_burst(uint16_t *dst_ram, uint32_t count) {
+    DMA_CH0_READ_ADDR   = ADC_FIFO_ADDR;
+    DMA_CH0_WRITE_ADDR  = (uint32_t)dst_ram;
+    DMA_CH0_TRANS_COUNT = count;
+    // DREQ_ADC = 36 (marca el ritmo del DMA según el ADC), INCR_WRITE=1, DATA_SIZE=16-bit:
+    DMA_CH0_CTRL_TRIG   = (36UL << 15) | (1UL << 5) | (1UL << 2) | (1UL << 0);
+}`,
+        cmsisStruct: `#include "hardware/structs/dma.h"
+// Escribir en el registro _TRIG del canal DMA arma e inicia la transferencia en 1 instrucción.`,
+        proDriver: `// En RP2040 también puedes encadenar dos canales DMA (CHAIN_TO):
+// El Canal 0 llena el buffer y al terminar dispara automáticamente al Canal 1 que lo reinicia.`,
+        asmInsight: 'El DMA del RP2040 puede mover hasta 1 palabra de 32 bits por cada ciclo de reloj (532 MB/s a 133 MHz).',
+        hardwareNote: 'El campo TREQ_SEL (DREQ_ADC = 36) es el semáforo que evita que el DMA lea el ADC antes de que haya una muestra nueva.'
+      }
+    },
+    challenge: {
+      question: 'Reto de Arquitectura DMA — Configuración de Incremento de Punteros',
+      scenario:
+        'Estás configurando un canal DMA para transferir 100 muestras consecutivas desde el registro de datos del conversor analógico-digital (ADC1->DR, ubicado en la dirección fija 0x4001204C) hacia un array uint16_t buffer[100] en memoria RAM. ¿Cómo debes configurar el auto-incremento de direcciones del DMA?',
+      options: [
+        {
+          id: 'a',
+          label: 'Incrementar tanto la dirección de Periférico (PINC=1) como la de Memoria (MINC=1).',
+          isCorrect: false,
+          feedback: '¡Error grave! Si incrementas la dirección del periférico, la primera lectura será en ADC1->DR (0x4001204C), pero la segunda leerá en 0x4001204E (que es otro registro distinto o memoria reservada).'
+        },
+        {
+          id: 'b',
+          label: 'Dirección de Periférico FIJA (PINC=0) y Dirección de Memoria RAM INCREMENTAL (MINC=1).',
+          isCorrect: true,
+          feedback: '¡Exacto! Todas las muestras nacen en la misma ventanilla de hardware (ADC1->DR), pero queremos guardarlas una detrás de otra en las casillas buffer[0], buffer[1]... buffer[99] de la RAM.'
+        },
+        {
+          id: 'c',
+          label: 'Ambas direcciones fijas (PINC=0 y MINC=0).',
+          isCorrect: false,
+          feedback: 'Si no incrementas la dirección de memoria, las 100 muestras se machacarán todas sobre buffer[0] y el resto del array quedará vacío.'
+        }
+      ]
+    }
+  },
+
+{
+    id: 12,
     slug: 'arquitectura-firmware-profesional-fsm-hal-rtos',
-    title: 'Módulo 8: Arquitectura de Firmware Experto — Drivers, FSM, Low-Power y RTOS',
+    title: 'Módulo 12: Arquitectura de Firmware Experto — Drivers, FSM, Low-Power y RTOS',
     subtitle: 'Cómo estructurar código C de nivel industrial: Tablas de Punteros a Funciones, Máquinas de Estados Finitos, Diseño de HAL Portable y Cambio de Contexto en RTOS',
     level: 'Experto Industrial',
     duration: '75 min',
@@ -1898,10 +2653,10 @@ void send_msg_to_core1(uint32_t cmd) {
     }
   },
 
-  {
-    id: 9,
+{
+    id: 13,
     slug: 'proyectos-multi-archivo-creacion-librerias-const-union-y-toolchain',
-    title: 'Módulo 9: Proyectos Multi-Archivo (.h y .c), Creación de Librerías, "static/const/union" y Toolchain',
+    title: 'Módulo 13: Proyectos Multi-Archivo (.h y .c), Creación de Librerías, "static/const/union" y Toolchain',
     subtitle: 'Cómo dividir un programa en varios archivos, crear tus propias librerías reutilizables, dominar static/extern/const/union y entender qué hacen el Compilador (.o), el Archiver (.a) y el Linker (.elf / .map)',
     level: 'Experto Industrial',
     duration: '80 min',
@@ -2213,10 +2968,10 @@ void __attribute__((section(".time_critical"))) pulso_nanosegundos(uint8_t pin) 
     }
   },
 
-  {
-    id: 10,
+{
+    id: 14,
     slug: 'ingenieria-senior-bootloaders-ota-hardfault-misra-c-pid-y-testing',
-    title: 'Módulo 10: Nivel Senior Industrial — Bootloaders (OTA), Depuración HardFault, MISRA-C, PID y Testing',
+    title: 'Módulo 14: Nivel Senior Industrial — Bootloaders (OTA), Depuración HardFault, MISRA-C, PID y Testing',
     subtitle: 'Lo que separa a un programador de un Ingeniero Senior: particionado de Flash y salto de Bootloader, diagnóstico forense de cuelgues (HardFault), reglas MISRA-C, control PID en coma fija y Tests Unitarios',
     level: 'Experto Industrial',
     duration: '90 min',
@@ -2487,13 +3242,11 @@ void test_driver_en_pc(void) {
       ]
     }
   },
-  // =========================================================================
-  // MÓDULO 11: NORMATIVA ESPACIAL Y DEFENSA (EUROPA ECSS vs AMÉRICA NASA/DO-178C) Y HARDWARE RAD-HARD
-  // =========================================================================
-  {
-    id: 11,
+
+{
+    id: 15,
     slug: 'normativa-espacial-defensa-ecss-nasa-do178c-radhard-mcdc',
-    title: 'Módulo 11: Normativa Aeroespacial y Defensa — Europa (ECSS-E-ST-40C / Q-ST-80C) vs América (NASA JPL / DO-178C) y Hardware Rad-Hard',
+    title: 'Módulo 15: Normativa Aeroespacial y Defensa — Europa (ECSS-E-ST-40C / Q-ST-80C) vs América (NASA JPL / DO-178C) y Hardware Rad-Hard',
     subtitle: 'Lo que SE PUEDE, NO SE DEBE y ESTÁ PROHIBIDO en firmware crítico, Categorías A-D, los 14 Checks Annex U.2, Cobertura 100% MC/DC, HSIA y Radiación Cósmica (SEU / TMR / EDAC)',
     level: 'Experto Industrial',
     duration: '180 min',
@@ -2858,13 +3611,10 @@ void ecss_unit_test_boundary_thruster_temp(void) {
     }
   },
 
-  // =========================================================================
-  // MÓDULO 12: RTOS (FREERTOS / ZEPHYR / RTEMS) A NIVEL DE SILICIO
-  // =========================================================================
-  {
-    id: 12,
+{
+    id: 16,
     slug: 'rtos-freertos-zephyr-cambio-contexto-mutex-colas',
-    title: 'Módulo 12: Sistemas Operativos de Tiempo Real (RTOS: FreeRTOS / Zephyr / RTEMS)',
+    title: 'Módulo 16: Sistemas Operativos de Tiempo Real (RTOS: FreeRTOS / Zephyr / RTEMS)',
     subtitle: 'Cómo funciona un Cambio de Contexto en ensamblador (PendSV / SysTick), el Bloque de Control de Tarea (TCB), la Inversión de Prioridad y la sincronización segura con Mutex, Semáforos y Colas Estáticas',
     level: 'Experto Industrial',
     duration: '120 min',
@@ -3072,13 +3822,10 @@ void rp2040_notify_other_core(uint32_t event_code) {
     }
   },
 
-  // =========================================================================
-  // MÓDULO 13: BUSES INDUSTRIALES/ESPACIALES (CAN / SPACEWIRE) Y CRC HARDWARE
-  // =========================================================================
-  {
-    id: 13,
+{
+    id: 17,
     slug: 'buses-industriales-can-bus-spacewire-mil1553-crc-hardware',
-    title: 'Módulo 13: Buses Industriales y Aeroespaciales (CAN Bus / SpaceWire / MIL-STD-1553) y Cálculo de CRC',
+    title: 'Módulo 17: Buses Industriales y Aeroespaciales (CAN Bus / SpaceWire / MIL-STD-1553) y Cálculo de CRC',
     subtitle: 'Cómo transmitir datos a través de metros de cable con ruido electromagnético extremo usando pares diferenciales, arbitraje no destructivo por ID y verificación polinómica CRC en C y en Silicio',
     level: 'Experto Industrial',
     duration: '120 min',
@@ -3262,13 +4009,10 @@ uint32_t rp2040_read_dma_sniffed_crc(void) {
     }
   },
 
-  // =========================================================================
-  // MÓDULO 14: ARITMÉTICA DE PUNTO FIJO (Q15/Q31) Y CONTROL PID DISCRETO
-  // =========================================================================
-  {
-    id: 14,
+{
+    id: 18,
     slug: 'aritmetica-punto-fijo-q15-q31-control-pid-discreto-anti-windup',
-    title: 'Módulo 14: Aritmética de Punto Fijo (Q15 / Q31) y Control PID Discreto en Tiempo Real',
+    title: 'Módulo 18: Aritmética de Punto Fijo (Q15 / Q31) y Control PID Discreto en Tiempo Real',
     subtitle: 'Cómo hacer matemáticas con decimales a velocidad de entero sin usar float (FPU) y cómo programar un controlador PID industrial con saturación y Anti-Windup',
     level: 'Experto Industrial',
     duration: '120 min',
@@ -3456,13 +4200,10 @@ void rp2040_interp0_setup_clamp(int32_t min_val, int32_t max_val) {
     }
   },
 
-  // =========================================================================
-  // MÓDULO 15: DEPURACIÓN HARDWARE (SWD/JTAG) Y ANÁLISIS FORENSE DE HARDFAULT
-  // =========================================================================
-  {
-    id: 15,
+{
+    id: 19,
     slug: 'depuracion-hardware-swd-jtag-analisis-forense-hardfault-cfsr-stack',
-    title: 'Módulo 15: Depuración Hardware (SWD / JTAG) y Análisis Forense de Fallos (HardFault)',
+    title: 'Módulo 19: Depuración Hardware (SWD / JTAG) y Análisis Forense de Fallos (HardFault)',
     subtitle: 'Cómo leer los registros de autopsia del procesador (SCB->CFSR, HFSR, BFAR, MMFAR) y reconstruir el Stack Frame para encontrar la instrucción exacta en C que colgó el microcontrolador',
     level: 'Experto Industrial',
     duration: '120 min',
@@ -3655,13 +4396,10 @@ void rp2040_software_breakpoint(void) {
     }
   },
 
-  // =========================================================================
-  // MÓDULO 16: ULTRA-BAJO CONSUMO (SLEEP / STOP / DEEP-SLEEP) Y BATERÍAS
-  // =========================================================================
-  {
-    id: 16,
+{
+    id: 20,
     slug: 'modos-ultra-bajo-consumo-sleep-deep-sleep-wfi-wfe-baterias',
-    title: 'Módulo 16: Modos de Ultra-Bajo Consumo (Sleep, Stop, Deep-Sleep) y Diseño con Batería',
+    title: 'Módulo 20: Modos de Ultra-Bajo Consumo (Sleep, Stop, Deep-Sleep) y Diseño con Batería',
     subtitle: 'Cómo reducir el consumo de un microcontrolador de 20 mA a 2 µA usando las instrucciones __WFI() / __WFE(), apagado selectivo de dominios de reloj, pines flotantes y presupuesto energético',
     level: 'Experto Industrial',
     duration: '120 min',
@@ -3854,13 +4592,10 @@ void rp2040_enter_dormant_mode_ info(void) {
     }
   },
 
-  // =========================================================================
-  // MÓDULO 17: SEGURIDAD HARDWARE (MPU, SECURE BOOT, SHA-256 Y TRNG)
-  // =========================================================================
-  {
-    id: 17,
+{
+    id: 21,
     slug: 'seguridad-hardware-mpu-aislamiento-secure-boot-sha256-trng',
-    title: 'Módulo 17: Seguridad Hardware (MPU, Aislamiento de Memoria, Secure Boot y Criptografía)',
+    title: 'Módulo 21: Seguridad Hardware (MPU, Aislamiento de Memoria, Secure Boot y Criptografía)',
     subtitle: 'Cómo blindar la memoria RAM y los periféricos con la Unidad de Protección de Memoria (MPU), prevenir ejecución de código en la Pila (XN) y verificar firmas de firmware con SHA-256 / TRNG',
     level: 'Experto Industrial',
     duration: '120 min',

@@ -4,7 +4,7 @@
  *
  * Responsabilidades arquitectónicas:
  * 1. Gestión del estado global del microcontrolador activo (`selectedMcuId` entre los 5 chips reales).
- * 2. Navegación entre los 18 Módulos del curso (`Módulo 0` a `Módulo 17`) y sincronización automática
+ * 2. Navegación entre los 22 Módulos del curso (`Módulo 0` a `Módulo 21`) y sincronización automática
  *    con la estación de laboratorio recomendada (`activeLab`).
  * 3. Persistencia local en `localStorage` del progreso de módulos superados (`programacion_c_completed_modules`).
  * 4. Coordinación del motor de retos de programación C en 3 niveles por módulo mediante `evaluateEmbeddedCCode`.
@@ -440,7 +440,7 @@ export function App() {
           <div className="retro-window overflow-hidden">
             <div className="retro-titlebar px-3 py-1.5 flex items-center justify-between text-[11px] font-pixel text-cyan-300">
               <span>╔═ [ TEMARIO_ROM.DIR ]</span>
-              <span className="text-emerald-400">[00..17]</span>
+              <span className="text-emerald-400">[00..21]</span>
             </div>
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">

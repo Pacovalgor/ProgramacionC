@@ -3,7 +3,7 @@
  * @description Capítulos de Teoría Profunda estilo libro de texto de ingeniería (`DEEP_THEORY_BY_MODULE`).
  * Diseñados específicamente para su estudio detallado y transcripción en cuaderno físico de papel.
  *
- * Cada módulo (`0` a `11`) cuenta con múltiples capítulos técnicos que incluyen:
+ * Cada módulo (`0` a `21`) cuenta con múltiples capítulos técnicos que incluyen:
  * - Desarrollo teórico progresivo (`paragraphs`).
  * - Fórmulas matemáticas y leyes físicas/normativas destacadas (`formulas`).
  * - Tablas de referencia rápida para copiar al cuaderno (`table`).
@@ -60,13 +60,13 @@ export interface DeepTheoryChapter {
 }
 
 /**
- * Mapa de capítulos de teoría profunda indexado por el `id` del módulo (`0` a `11`).
+ * Mapa de capítulos de teoría profunda indexado por el `id` del módulo (`0` a `21`).
  * Política de mantenimiento: añadir siempre nuevos capítulos o apartados de forma incremental,
  * sin eliminar ni sobrescribir los capítulos existentes.
  */
 export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   // =========================================================================
-  // MÓDULO 0: TEORÍA BASE DE C ORIENTADA A HARDWARE
+  // MÓDULO 0
   // =========================================================================
   0: [
     {
@@ -163,10 +163,16 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           seniorFix: 'En el .h solo se declara el prototipo (extern uint32_t ticks;) y la variable real se define en un único archivo .c.'
         }
       ]
-    },
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 1
+  // =========================================================================
+  1: [
     {
-      id: 'm0-c3',
-      chapterNumber: 'Capítulo 0.3',
+      id: 'm1-c1',
+      chapterNumber: 'Capítulo 1.1',
       title: 'Punteros a Fondo, Aritmética de Direcciones y Funciones en Sistemas Embebidos',
       subtitle: 'Desmitificando *, &, punteros void*, arrays y cómo viajan los parámetros en los registros de la CPU',
       paragraphs: [
@@ -206,8 +212,85 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm0-c4',
-      chapterNumber: 'Capítulo 0.4',
+      id: 'm1-c2',
+      chapterNumber: 'Capítulo 1.2',
+      title: 'Anatomía del Puntero MMIO, Calificador volatile, const Pointers y Silenciamiento (void)',
+      subtitle: 'El despiece en 3 capas de (*(volatile uint32_t *)0x...), la regla de const en punteros y el silenciamiento de advertencias y accesos de bus',
+      paragraphs: [
+        'En los programas de C para ordenador de sobremesa, un puntero apunta a variables en la memoria RAM asignadas por el sistema operativo. En sistemas embebidos "bare-metal", sin embargo, utilizamos los punteros para hablar directamente con los transistores de silicio de los periféricos mediante Memory-Mapped I/O (MMIO). Para dominar este puente fundamental, despiezamos la fórmula canónica (*(volatile uint32_t *)0x40020014UL) en tres capas rigurosas: 1) Capa 1 (Dirección Base Numérica): el número hexadecimal literal 0x40020014UL representa la coordenada física real del registro en el mapa de memoria del microcontrolador. 2) Capa 2 (El Molde de Tipo Puntero): la expresión (volatile uint32_t *) le ordena al compilador que trate ese número entero como una dirección que apunta a una casilla de 32 bits volátil. 3) Capa 3 (El Operador Exterior de Desreferencia): el asterisco exterior * entra físicamente en esa dirección para escribir datos en el registro (*p = val) o leer su estado eléctrico (val = *p).',
+        'El calificador "volatile" es vital en esta fórmula: en un programa convencional, si el compilador detecta que escribes dos veces seguidas en una dirección sin leerla entre medias (ej. encender y apagar un pin para generar un pulso de reloj), su optimizador (-O2 / -O3) asume que la primera escritura es inútil y la elimina del binario. El calificador "volatile" le advierte formalmente al compilador: "Esta casilla de memoria puede cambiar sola por hardware o su lectura/escritura tiene efectos físicos en el mundo real; está terminantemente prohibido almacenar su valor en la caché de registros internos de la CPU (R0..R12) y está prohibido eliminar o reordenar cualquier acceso a ella".',
+        'Por otro lado, la posición de la palabra "const" con respecto al asterisco del puntero define con precisión qué elemento está protegido contra modificaciones: 1) "const uint8_t *ptr" (o "uint8_t const *ptr") define un puntero hacia un dato constante. La dirección guardada en ptr puede cambiar y avanzar, pero el dato al que apunta no puede ser modificado (ideal para recorrer tablas de calibración o mensajes almacenados en la memoria Flash ROM). 2) "uint32_t * const ptr" define un puntero constante hacia un dato variable. La dirección numérica es fija y jamás puede alterarse, pero el dato apuntado sí puede ser modificado (es la definición exacta de un registro de hardware que siempre reside en una dirección física fija). 3) "const uint32_t * const ptr" bloquea tanto la dirección como el dato (ideal para registros de silicio de solo lectura, como el Chip ID o Unique Device ID grabado en fábrica).',
+        'Finalmente, la instrucción "(void)variable;" cumple dos funciones trascendentales en la ingeniería de firmware: 1) Silenciamiento de advertencias: bajo normas de alta integridad (MISRA-C / DO-178C) donde se compila con "-Wall -Wextra -Werror", cualquier parámetro o variable no utilizada detiene la compilación; escribir (void)var; notifica explícitamente al compilador que el descarte es deliberado sin generar código máquina. 2) Lecturas "dummy" de bus de periféricos: en arquitecturas como ARM Cortex-M (STM32, NRF, RP2040), tras habilitar el reloj de un periférico en registros como RCC->AHB1ENR, los buses de silicio (APB/AHB) requieren hasta 2 ciclos de retardo para propagar la señal de reloj antes de que el periférico acepte escrituras. Ejecutar una lectura dummy forzada como "(void)RCC->AHB1ENR;" garantiza que la transacción de bus finalice antes de intentar configurar el periférico, evitando excepciones HardFault mortales.'
+      ],
+      formulas: [
+        {
+          name: '1. Despiece Capa 1: Dirección Física',
+          expression: '0x40020014UL',
+          explanation: 'Número hexadecimal literal de 32 bits que ubica físicamente los transistores del registro en el bus del chip.'
+        },
+        {
+          name: '2. Despiece Capa 2: Casteo a Puntero Volátil',
+          expression: '(volatile uint32_t *)',
+          explanation: 'Transforma el número en la dirección de un entero de 32 bits volátil, prohibiendo la caché en registros de la CPU.'
+        },
+        {
+          name: '3. Despiece Capa 3: Desreferencia de Silicio',
+          expression: '*(volatile uint32_t *)0x40020014UL',
+          explanation: 'El asterisco exterior abre la casilla física para escribir un comando en el pin o leer su voltaje real.'
+        },
+        {
+          name: '4. Lectura Dummy de Bus (Estabilización de Reloj)',
+          expression: '(void)RCC->AHB1ENR;',
+          explanation: 'Fuerza una lectura en el bus APB/AHB para esperar 2 ciclos de reloj tras activar el periférico antes de usarlo.'
+        }
+      ],
+      table: {
+        headers: ['Construcción con const y void', 'Qué elemento es Constante', 'Ubicación Física en Silicio', 'Uso Profesional en Firmware'],
+        rows: [
+          ['const uint8_t *ptr', 'El dato apuntado (Solo Lectura)', 'Memoria Flash ROM (0x08000000)', 'Tablas de calibración, fuentes tipográficas, tramas fijas'],
+          ['uint32_t * const ptr', 'La dirección del puntero (Fija)', 'Memoria de Periféricos MMIO (0x40000000)', 'Puntero permanente a un registro de hardware (ej. GPIOA->ODR)'],
+          ['const uint32_t * const ptr', 'Tanto la dirección como el dato', 'Registros ROM / Device ID del fabricante', 'Lectura de número de serie único y capacidad de Flash'],
+          ['(void)variable;', 'No aplica (Instrucción de control)', 'Compilador / Bus de periféricos', 'Silenciar -Wunused-parameter y forzar sincronización de bus']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Despiece y Control de un Registro MMIO con Lectura Dummy de Bus',
+        problemStatement:
+          'Quieres activar el reloj del puerto GPIOA en un STM32 escribiendo en el registro RCC_AHB1ENR (dirección 0x40023830UL) y encender el bit 0. Diseña el código en C bare-metal aplicando el despiece en 3 capas, const punteros y la lectura dummy de bus para evitar un fallo HardFault.',
+        steps: [
+          '1. Definimos el puntero constante al registro de reloj: uint32_t * const p_rcc_ahb1 = (uint32_t *)0x40023830UL. Como la dirección del periférico nunca cambia, usamos * const.',
+          '2. Encendemos el bit 0 de RCC_AHB1ENR para alimentar de reloj a los transistores de GPIOA: *p_rcc_ahb1 |= (1UL << 0);',
+          '3. Tras habilitar el reloj, el bus AHB1 requiere 2 ciclos de retardo para estabilizarse. Hacemos una lectura dummy forzada: (void)*p_rcc_ahb1; para asegurar que el bus responde antes de acceder a GPIOA.',
+          '4. Accedemos ahora con seguridad al registro GPIOA_ODR (0x40020014UL) mediante la desreferencia completa: (*(volatile uint32_t *)0x40020014UL) |= (1UL << 5);'
+        ],
+        codeOrMath: `// 1. Puntero constante a dirección física de reloj:\nvolatile uint32_t * const p_rcc = (volatile uint32_t *)0x40023830UL;\n\n// 2. Activar reloj de GPIOA (Bit 0):\n*p_rcc |= (1UL << 0);\n\n// 3. Lectura Dummy de bus (Espera de 2 ciclos de bus APB/AHB):\n(void)*p_rcc;\n\n// 4. Escribir de forma segura en GPIOA_ODR sin HardFault:\n(*(volatile uint32_t *)0x40020014UL) |= (1UL << 5); // Enciende Pin PA5`,
+        conclusion:
+          'Sin la lectura dummy (void)*p_rcc, una CPU de alta frecuencia a 84 MHz o 168 MHz intentaría acceder a GPIOA antes de que su reloj esté encendido, provocando un fallo de bus fatal (BusFault / HardFault).'
+      },
+      pitfalls: [
+        {
+          mistake: 'Olvidar el calificador volatile en un puntero a registro: uint32_t *p = (uint32_t *)0x40020014;',
+          whyItFails:
+            'Con optimización -O2, el compilador leerá el valor una sola vez en un registro de la CPU (R0) y nunca volverá a consultar el estado físico del pin, dejando al programa ciego ante cambios del mundo exterior.',
+          seniorFix: 'Declara siempre los punteros a registros como volatile: volatile uint32_t *p;'
+        },
+        {
+          mistake: 'Confundir const uint32_t *p con uint32_t * const p al definir registros',
+          whyItFails:
+            'Si escribes const uint32_t *p_reg, le dices al compilador que el dato es de solo lectura; ¡cuando intentes escribir *p_reg = 1; el compilador se negará a compilar!',
+          seniorFix: 'Para registros de escritura usa uint32_t * const p (dirección fija, dato modificable).'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 2
+  // =========================================================================
+  2: [
+    {
+      id: 'm2-c1',
+      chapterNumber: 'Capítulo 2.1',
       title: 'Estructuras (struct), Alineación en Memoria (Padding), Uniones y el Operador Flecha (->)',
       subtitle: 'Cómo diseña un ingeniero senior los tipos de datos compuestos para registros y protocolos de comunicación',
       paragraphs: [
@@ -244,8 +327,54 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm0-c5',
-      chapterNumber: 'Capítulo 0.5',
+      id: 'm2-c2',
+      chapterNumber: 'Capítulo 2.2',
+      title: 'Construcción de Headers de Hardware desde Cero (Cómo nace CMSIS)',
+      subtitle: 'De una tabla de direcciones en PDF a una librería de estructuras y punteros lista para producción',
+      paragraphs: [
+        'Cuando un fabricante como ST, Nordic o Espressif diseña un chip, publica en el Reference Manual la "Dirección Base" de cada periférico (por ejemplo, GPIOA empieza en 0x40020000, GPIOB en 0x40020400) y el "Offset" (desplazamiento en bytes) de cada uno de sus registros internos.',
+        'En lugar de definir cien macros sueltas para cada registro de cada puerto, los ingenieros crean una única estructura C (struct) cuyos campos uint32_t siguen el mismo orden que la tabla de offsets del manual. Después, basta con convertir la dirección base de cada puerto en un puntero a esa estructura.',
+        'Además, qué calificadores se ponen a cada campo del struct depende de los permisos del registro en el Datasheet: en CMSIS verás __IO (que es un #define de volatile para registros R/W), __I (que es volatile const para registros de solo lectura como IDR) y __O (volatile para registros de solo escritura como BSRR).'
+      ],
+      table: {
+        headers: ['Macro CMSIS', 'Definición Real en C', 'Cuándo se usa en el struct del Periférico'],
+        rows: [
+          ['__IO', 'volatile', 'Registros de Lectura y Escritura (MODER, ODR, CR1)'],
+          ['__I', 'volatile const', 'Registros de Solo Lectura (IDR, SR): el compilador da error si intentas escribir en ellos, pero sabe que cambian solos'],
+          ['__O', 'volatile', 'Registros de Solo Escritura (BSRR, W1TS)']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Crear tu propio mini-CMSIS para un Periférico con Huecos Reservados',
+        problemStatement:
+          'Un periférico Timer empieza en la dirección base 0x40001000. Su registro CTRL está en el offset +0x00, su registro COUNT está en +0x04, pero su registro COMPARE salta hasta el offset +0x10 (hay 8 bytes reservados sin usar entre +0x08 y +0x0F). ¿Cómo escribes el struct en C?',
+        steps: [
+          '1. CTRL ocupa +0x00..+0x03 (1 uint32_t). COUNT ocupa +0x04..+0x07 (1 uint32_t).',
+          '2. Entre +0x08 y +0x10 hay 8 bytes de diferencia, lo que equivale exactamente a dos enteros uint32_t (2 * 4 = 8 bytes).',
+          '3. Insertamos uint32_t RESERVED[2]; para rellenar esos 8 bytes y que COMPARE caiga exactamente en el offset +0x10.'
+        ],
+        codeOrMath: `typedef struct {\n    volatile uint32_t CTRL;        // Offset +0x00 (0x40001000)\n    volatile uint32_t COUNT;       // Offset +0x04 (0x40001004)\n    uint32_t          RESERVED[2]; // Offset +0x08 y +0x0C (8 bytes de hueco)\n    volatile uint32_t COMPARE;     // Offset +0x10 (0x40001010 ¡Exacto!)\n} MiTimer_TypeDef;\n\n#define TIMER0 ((MiTimer_TypeDef *)0x40001000UL)`,
+        conclusion:
+          'Si olvidas poner el array RESERVED[2], el campo COMPARE apuntaría por error a +0x08 en lugar de +0x10.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Usar bitfields de C (struct { uint32_t bit0:1; }) sobre registros que exigen acceso de 32 bits',
+          whyItFails:
+            'El estándar C no garantiza en qué orden empaqueta los bitfields ni qué instrucción máquina (8, 16 o 32 bits) usará el compilador para escribirlos, lo cual falla en muchos buses periféricos.',
+          seniorFix: 'Usa registros uint32_t explícitos y máscaras de bits desplazadas, que son 100% deterministas y portables.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 3
+  // =========================================================================
+  3: [
+    {
+      id: 'm3-c1',
+      chapterNumber: 'Capítulo 3.1',
       title: 'Anatomía de Literales (U / UL) y las 6 Operaciones Sagradas de Bits en Memoria',
       subtitle: 'Por qué "1 << 31" es Comportamiento Indefinido y la guía canónica paso a paso para encender, apagar, conmutar y leer bits',
       paragraphs: [
@@ -326,85 +455,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm0-c6',
-      chapterNumber: 'Capítulo 0.6',
-      title: 'Anatomía del Puntero MMIO, Calificador volatile, const Pointers y Silenciamiento (void)',
-      subtitle: 'El despiece en 3 capas de (*(volatile uint32_t *)0x...), la regla de const en punteros y el silenciamiento de advertencias y accesos de bus',
-      paragraphs: [
-        'En los programas de C para ordenador de sobremesa, un puntero apunta a variables en la memoria RAM asignadas por el sistema operativo. En sistemas embebidos "bare-metal", sin embargo, utilizamos los punteros para hablar directamente con los transistores de silicio de los periféricos mediante Memory-Mapped I/O (MMIO). Para dominar este puente fundamental, despiezamos la fórmula canónica (*(volatile uint32_t *)0x40020014UL) en tres capas rigurosas: 1) Capa 1 (Dirección Base Numérica): el número hexadecimal literal 0x40020014UL representa la coordenada física real del registro en el mapa de memoria del microcontrolador. 2) Capa 2 (El Molde de Tipo Puntero): la expresión (volatile uint32_t *) le ordena al compilador que trate ese número entero como una dirección que apunta a una casilla de 32 bits volátil. 3) Capa 3 (El Operador Exterior de Desreferencia): el asterisco exterior * entra físicamente en esa dirección para escribir datos en el registro (*p = val) o leer su estado eléctrico (val = *p).',
-        'El calificador "volatile" es vital en esta fórmula: en un programa convencional, si el compilador detecta que escribes dos veces seguidas en una dirección sin leerla entre medias (ej. encender y apagar un pin para generar un pulso de reloj), su optimizador (-O2 / -O3) asume que la primera escritura es inútil y la elimina del binario. El calificador "volatile" le advierte formalmente al compilador: "Esta casilla de memoria puede cambiar sola por hardware o su lectura/escritura tiene efectos físicos en el mundo real; está terminantemente prohibido almacenar su valor en la caché de registros internos de la CPU (R0..R12) y está prohibido eliminar o reordenar cualquier acceso a ella".',
-        'Por otro lado, la posición de la palabra "const" con respecto al asterisco del puntero define con precisión qué elemento está protegido contra modificaciones: 1) "const uint8_t *ptr" (o "uint8_t const *ptr") define un puntero hacia un dato constante. La dirección guardada en ptr puede cambiar y avanzar, pero el dato al que apunta no puede ser modificado (ideal para recorrer tablas de calibración o mensajes almacenados en la memoria Flash ROM). 2) "uint32_t * const ptr" define un puntero constante hacia un dato variable. La dirección numérica es fija y jamás puede alterarse, pero el dato apuntado sí puede ser modificado (es la definición exacta de un registro de hardware que siempre reside en una dirección física fija). 3) "const uint32_t * const ptr" bloquea tanto la dirección como el dato (ideal para registros de silicio de solo lectura, como el Chip ID o Unique Device ID grabado en fábrica).',
-        'Finalmente, la instrucción "(void)variable;" cumple dos funciones trascendentales en la ingeniería de firmware: 1) Silenciamiento de advertencias: bajo normas de alta integridad (MISRA-C / DO-178C) donde se compila con "-Wall -Wextra -Werror", cualquier parámetro o variable no utilizada detiene la compilación; escribir (void)var; notifica explícitamente al compilador que el descarte es deliberado sin generar código máquina. 2) Lecturas "dummy" de bus de periféricos: en arquitecturas como ARM Cortex-M (STM32, NRF, RP2040), tras habilitar el reloj de un periférico en registros como RCC->AHB1ENR, los buses de silicio (APB/AHB) requieren hasta 2 ciclos de retardo para propagar la señal de reloj antes de que el periférico acepte escrituras. Ejecutar una lectura dummy forzada como "(void)RCC->AHB1ENR;" garantiza que la transacción de bus finalice antes de intentar configurar el periférico, evitando excepciones HardFault mortales.'
-      ],
-      formulas: [
-        {
-          name: '1. Despiece Capa 1: Dirección Física',
-          expression: '0x40020014UL',
-          explanation: 'Número hexadecimal literal de 32 bits que ubica físicamente los transistores del registro en el bus del chip.'
-        },
-        {
-          name: '2. Despiece Capa 2: Casteo a Puntero Volátil',
-          expression: '(volatile uint32_t *)',
-          explanation: 'Transforma el número en la dirección de un entero de 32 bits volátil, prohibiendo la caché en registros de la CPU.'
-        },
-        {
-          name: '3. Despiece Capa 3: Desreferencia de Silicio',
-          expression: '*(volatile uint32_t *)0x40020014UL',
-          explanation: 'El asterisco exterior abre la casilla física para escribir un comando en el pin o leer su voltaje real.'
-        },
-        {
-          name: '4. Lectura Dummy de Bus (Estabilización de Reloj)',
-          expression: '(void)RCC->AHB1ENR;',
-          explanation: 'Fuerza una lectura en el bus APB/AHB para esperar 2 ciclos de reloj tras activar el periférico antes de usarlo.'
-        }
-      ],
-      table: {
-        headers: ['Construcción con const y void', 'Qué elemento es Constante', 'Ubicación Física en Silicio', 'Uso Profesional en Firmware'],
-        rows: [
-          ['const uint8_t *ptr', 'El dato apuntado (Solo Lectura)', 'Memoria Flash ROM (0x08000000)', 'Tablas de calibración, fuentes tipográficas, tramas fijas'],
-          ['uint32_t * const ptr', 'La dirección del puntero (Fija)', 'Memoria de Periféricos MMIO (0x40000000)', 'Puntero permanente a un registro de hardware (ej. GPIOA->ODR)'],
-          ['const uint32_t * const ptr', 'Tanto la dirección como el dato', 'Registros ROM / Device ID del fabricante', 'Lectura de número de serie único y capacidad de Flash'],
-          ['(void)variable;', 'No aplica (Instrucción de control)', 'Compilador / Bus de periféricos', 'Silenciar -Wunused-parameter y forzar sincronización de bus']
-        ]
-      },
-      workedExample: {
-        title: 'Ejemplo Resuelto: Despiece y Control de un Registro MMIO con Lectura Dummy de Bus',
-        problemStatement:
-          'Quieres activar el reloj del puerto GPIOA en un STM32 escribiendo en el registro RCC_AHB1ENR (dirección 0x40023830UL) y encender el bit 0. Diseña el código en C bare-metal aplicando el despiece en 3 capas, const punteros y la lectura dummy de bus para evitar un fallo HardFault.',
-        steps: [
-          '1. Definimos el puntero constante al registro de reloj: uint32_t * const p_rcc_ahb1 = (uint32_t *)0x40023830UL. Como la dirección del periférico nunca cambia, usamos * const.',
-          '2. Encendemos el bit 0 de RCC_AHB1ENR para alimentar de reloj a los transistores de GPIOA: *p_rcc_ahb1 |= (1UL << 0);',
-          '3. Tras habilitar el reloj, el bus AHB1 requiere 2 ciclos de retardo para estabilizarse. Hacemos una lectura dummy forzada: (void)*p_rcc_ahb1; para asegurar que el bus responde antes de acceder a GPIOA.',
-          '4. Accedemos ahora con seguridad al registro GPIOA_ODR (0x40020014UL) mediante la desreferencia completa: (*(volatile uint32_t *)0x40020014UL) |= (1UL << 5);'
-        ],
-        codeOrMath: `// 1. Puntero constante a dirección física de reloj:\nvolatile uint32_t * const p_rcc = (volatile uint32_t *)0x40023830UL;\n\n// 2. Activar reloj de GPIOA (Bit 0):\n*p_rcc |= (1UL << 0);\n\n// 3. Lectura Dummy de bus (Espera de 2 ciclos de bus APB/AHB):\n(void)*p_rcc;\n\n// 4. Escribir de forma segura en GPIOA_ODR sin HardFault:\n(*(volatile uint32_t *)0x40020014UL) |= (1UL << 5); // Enciende Pin PA5`,
-        conclusion:
-          'Sin la lectura dummy (void)*p_rcc, una CPU de alta frecuencia a 84 MHz o 168 MHz intentaría acceder a GPIOA antes de que su reloj esté encendido, provocando un fallo de bus fatal (BusFault / HardFault).'
-      },
-      pitfalls: [
-        {
-          mistake: 'Olvidar el calificador volatile en un puntero a registro: uint32_t *p = (uint32_t *)0x40020014;',
-          whyItFails:
-            'Con optimización -O2, el compilador leerá el valor una sola vez en un registro de la CPU (R0) y nunca volverá a consultar el estado físico del pin, dejando al programa ciego ante cambios del mundo exterior.',
-          seniorFix: 'Declara siempre los punteros a registros como volatile: volatile uint32_t *p;'
-        },
-        {
-          mistake: 'Confundir const uint32_t *p con uint32_t * const p al definir registros',
-          whyItFails:
-            'Si escribes const uint32_t *p_reg, le dices al compilador que el dato es de solo lectura; ¡cuando intentes escribir *p_reg = 1; el compilador se negará a compilar!',
-          seniorFix: 'Para registros de escritura usa uint32_t * const p (dirección fija, dato modificable).'
-        }
-      ]
-    }
-  ],
-
-  // =========================================================================
-  // MÓDULO 1: C PARA HARDWARE — MANIPULACIÓN DE BITS Y PUNTEROS MMIO
-  // =========================================================================
-  1: [
-    {
-      id: 'm1-c1',
-      chapterNumber: 'Capítulo 1.1',
+      id: 'm3-c2',
+      chapterNumber: 'Capítulo 3.2',
       title: 'Álgebra Booleana a Nivel de Bits vs Operadores Lógicos',
       subtitle: 'Por qué confundir & con && o | con || es uno de los errores más frecuentes al empezar en embebidos',
       paragraphs: [
@@ -452,48 +504,73 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm1-c2',
-      chapterNumber: 'Capítulo 1.2',
-      title: 'Construcción de Headers de Hardware desde Cero (Cómo nace CMSIS)',
-      subtitle: 'De una tabla de direcciones en PDF a una librería de estructuras y punteros lista para producción',
+      id: 'm3-c3',
+      chapterNumber: 'Capítulo 3.3',
+      title: 'Desplazamiento Lógico vs Aritmético: La Trampa Oculta del Operador >> en Hardware',
+      subtitle: 'Por qué desplazar un int32_t negativo inunda el registro de unos y cómo la CPU ejecuta LSR vs ASR en ensamblador',
       paragraphs: [
-        'Cuando un fabricante como ST, Nordic o Espressif diseña un chip, publica en el Reference Manual la "Dirección Base" de cada periférico (por ejemplo, GPIOA empieza en 0x40020000, GPIOB en 0x40020400) y el "Offset" (desplazamiento en bytes) de cada uno de sus registros internos.',
-        'En lugar de definir cien macros sueltas para cada registro de cada puerto, los ingenieros crean una única estructura C (struct) cuyos campos uint32_t siguen el mismo orden que la tabla de offsets del manual. Después, basta con convertir la dirección base de cada puerto en un puntero a esa estructura.',
-        'Además, qué calificadores se ponen a cada campo del struct depende de los permisos del registro en el Datasheet: en CMSIS verás __IO (que es un #define de volatile para registros R/W), __I (que es volatile const para registros de solo lectura como IDR) y __O (volatile para registros de solo escritura como BSRR).'
+        'En el lenguaje C estándar (ISO/IEC 9899), el operador de desplazamiento a la derecha (>>) presenta un comportamiento dual fascinante y peligroso: no realiza una única operación fija en la ALU del microcontrolador, sino que su traducción a código máquina depende estrictamente de si la variable tiene o no signo (unsigned vs signed).',
+        'Cuando operas sobre tipos sin signo (<stdint.h>: uint8_t, uint16_t, uint32_t) o literales con sufijo U / UL, el compilador emite una instrucción de Desplazamiento Lógico a la Derecha (en arquitectura ARM Thumb-2: "LSR", Logical Shift Right). En un desplazamiento lógico de N posiciones, todos los bits se mueven N casillas hacia la derecha, los bits salientes por la derecha se descartan y las nuevas posiciones que entran por el extremo izquierdo (los bits más significativos, MSB) se rellenan obligatoriamente con CEROS (0s). Esto garantiza que la máscara o el campo numérico quede limpio y aislado.',
+        'Por el contrario, cuando aplicas (>>) sobre un tipo entero con signo (int8_t, int16_t, int32_t) y el valor es negativo (es decir, el bit más a la izquierda, el bit de signo, vale 1), el compilador emite una instrucción de Desplazamiento Aritmético a la Derecha (en ARM: "ASR", Arithmetic Shift Right). Para preservar el signo matemático del número en complemento a dos, el circuito de la ALU copia y propaga el bit de signo, ¡rellenando todas las nuevas posiciones de la izquierda con UNOS (1s)!',
+        'Si un desarrollador de firmware olvida colocar el sufijo "UL" en una constante o utiliza un int32_t ordinario para leer un registro de 32 bits cuyo bit 31 esté encendido (como el bit de habilitación de un periférico o una bandera de interrupción), aplicar (reg >> 4) propagará un reguero de unos que convertirá 0x80000000 en 0xF8000000. Al combinarlo posteriormente con un OR o evaluarlo en una condición lógica, el programa tomará decisiones erróneas. Por este motivo, la norma aeroespacial y de automoción MISRA-C:2012 Regla 10.1 prohíbe de forma taxativa el uso de los operadores de desplazamiento (<< y >>) sobre cualquier tipo de dato con signo.'
+      ],
+      formulas: [
+        {
+          name: '1. Desplazamiento Lógico (uint32_t)',
+          expression: '0x80000000UL >> 4  -->  0x08000000UL',
+          explanation: 'La CPU ejecuta LSR (Logical Shift Right). Los 4 bits superiores que entran por la izquierda son siempre 0000.'
+        },
+        {
+          name: '2. Desplazamiento Aritmético (int32_t negativo)',
+          expression: '((int32_t)0x80000000) >> 4  -->  0xF8000000',
+          explanation: 'La CPU ejecuta ASR (Arithmetic Shift Right). Como el bit 31 es 1, los 4 bits superiores que entran se rellenan con 1111 (0xF).'
+        },
+        {
+          name: '3. Regla MISRA-C:2012 10.1 (Tipos Sin Signo Obligatorios)',
+          expression: 'uint32_t campo = (reg_u32 >> pos) & mascara;',
+          explanation: 'Tanto el registro como el desplazamiento y la máscara deben ser estrictamente de tipos sin signo (unsigned).'
+        }
       ],
       table: {
-        headers: ['Macro CMSIS', 'Definición Real en C', 'Cuándo se usa en el struct del Periférico'],
+        headers: ['Tipo de Operando', 'Instrucción ARM Cortex-M / RISC-V', 'Tratamiento de Bits Entrantes por la Izquierda', 'Resultado Práctico con 0x80000000 >> 4'],
         rows: [
-          ['__IO', 'volatile', 'Registros de Lectura y Escritura (MODER, ODR, CR1)'],
-          ['__I', 'volatile const', 'Registros de Solo Lectura (IDR, SR): el compilador da error si intentas escribir en ellos, pero sabe que cambian solos'],
-          ['__O', 'volatile', 'Registros de Solo Escritura (BSRR, W1TS)']
+          ['uint32_t (Sin Signo / UL)', 'LSR (Logical Shift Right)', 'Rellena con CEROS (0s) siempre', '0x08000000 (Limpio, campo preservado)'],
+          ['int32_t positivo (> 0)', 'ASR (Arithmetic Shift Right)', 'Rellena con CEROS (0s) al ser signo 0', '0x08000000 (Comportamiento coincidente)'],
+          ['int32_t negativo (< 0)', 'ASR (Arithmetic Shift Right)', 'Rellena con UNOS (1s) propagando el signo', '0xF8000000 (¡Inundación catastrófica de unos!)']
         ]
       },
       workedExample: {
-        title: 'Ejemplo Resuelto: Crear tu propio mini-CMSIS para un Periférico con Huecos Reservados',
+        title: 'Ejemplo Resuelto: El Desastre Silencioso de Extraer un Campo de Hardware con un Tipo con Signo',
         problemStatement:
-          'Un periférico Timer empieza en la dirección base 0x40001000. Su registro CTRL está en el offset +0x00, su registro COUNT está en +0x04, pero su registro COMPARE salta hasta el offset +0x10 (hay 8 bytes reservados sin usar entre +0x08 y +0x0F). ¿Cómo escribes el struct en C?',
+          'Un sensor de presión industrial almacena su código de estado en los 4 bits superiores [31:28] de un registro de 32 bits. Si el registro vale 0x80000000 (bit 31 activo), compara el resultado de extraer el código con uint32_t frente a int32_t.',
         steps: [
-          '1. CTRL ocupa +0x00..+0x03 (1 uint32_t). COUNT ocupa +0x04..+0x07 (1 uint32_t).',
-          '2. Entre +0x08 y +0x10 hay 8 bytes de diferencia, lo que equivale exactamente a dos enteros uint32_t (2 * 4 = 8 bytes).',
-          '3. Insertamos uint32_t RESERVED[2]; para rellenar esos 8 bytes y que COMPARE caiga exactamente en el offset +0x10.'
+          '1. Extracción con uint32_t (Correcto): uint32_t reg_u = 0x80000000UL; uint32_t status_u = (reg_u >> 28);',
+          '2. El microcontrolador ejecuta LSR. Los 28 bits que caen se descartan y por la izquierda entran 28 ceros: 0x80000000 >> 28 = 0x00000008 (código 8, correcto).',
+          '3. Extracción con int32_t (Peligro): int32_t reg_s = (int32_t)0x80000000; int32_t status_s = (reg_s >> 28);',
+          '4. El procesador ejecuta ASR. Como el bit 31 era 1 (número negativo), se propagan 28 unos: 0x80000000 >> 28 = 0xFFFFFFF8 (-8 en decimal). Si luego haces if (status == 8), la condición fallará estrepitosamente.'
         ],
-        codeOrMath: `typedef struct {\n    volatile uint32_t CTRL;        // Offset +0x00 (0x40001000)\n    volatile uint32_t COUNT;       // Offset +0x04 (0x40001004)\n    uint32_t          RESERVED[2]; // Offset +0x08 y +0x0C (8 bytes de hueco)\n    volatile uint32_t COMPARE;     // Offset +0x10 (0x40001010 ¡Exacto!)\n} MiTimer_TypeDef;\n\n#define TIMER0 ((MiTimer_TypeDef *)0x40001000UL)`,
+        codeOrMath: `// ✅ EXTRACCIÓN CORRECTA (LSR):\nuint32_t reg_u    = 0x80000000UL;\nuint32_t status_u = (reg_u >> 28); // 0x00000008 (Decimal: 8)\n\n// ❌ BUG SILENCIOSO (ASR):\nint32_t  reg_s    = (int32_t)0x80000000;\nint32_t  status_s = (reg_s >> 28); // 0xFFFFFFF8 (Decimal: -8)`,
         conclusion:
-          'Si olvidas poner el array RESERVED[2], el campo COMPARE apuntaría por error a +0x08 en lugar de +0x10.'
+          'En el cuaderno físico anota esta regla en mayúsculas: JAMÁS uses tipos con signo (int, int32_t) para manipular registros, extraer campos o aplicar desplazamientos (>>).'
       },
       pitfalls: [
         {
-          mistake: 'Usar bitfields de C (struct { uint32_t bit0:1; }) sobre registros que exigen acceso de 32 bits',
+          mistake: 'Hacer desplazamiento a la derecha sobre una variable declarada simplemente como "int"',
           whyItFails:
-            'El estándar C no garantiza en qué orden empaqueta los bitfields ni qué instrucción máquina (8, 16 o 32 bits) usará el compilador para escribirlos, lo cual falla en muchos buses periféricos.',
-          seniorFix: 'Usa registros uint32_t explícitos y máscaras de bits desplazadas, que son 100% deterministas y portables.'
+            'En C, "int" tiene signo. Si el número toma un valor negativo o tiene el bit MSB a 1, la CPU aplicará ASR y rellenará la izquierda con unos, corrompiendo cualquier cálculo de máscara.',
+          seniorFix: 'Usa siempre tipos de <stdint.h> con prefijo "u" (uint32_t, uint16_t, uint8_t).'
+        },
+        {
+          mistake: 'Desplazar más bits que el tamaño del tipo (ej. uint32_t x; x >> 32;)',
+          whyItFails:
+            'En el estándar C, desplazar un número un número de posiciones mayor o igual a su tamaño en bits es Comportamiento Indefinido (Undefined Behavior). Muchas CPUs enmascaran el desplazamiento con 0x1F, por lo que x >> 32 se convierte en x >> 0 (no hace nada).',
+          seniorFix: 'Verifica que el desplazamiento n esté estrictamente en el rango 0 <= n < 32.'
         }
       ]
     },
     {
-      id: 'm1-c3',
-      chapterNumber: 'Capítulo 1.3',
+      id: 'm3-c4',
+      chapterNumber: 'Capítulo 3.4',
       title: 'Campos de Múltiples Bits (Multi-Bit Fields) y Librería de Macros Blindada (MISRA-C)',
       subtitle: 'La técnica Clear & Insert para registros como MODER y cómo blindar macros de producción con dobles paréntesis',
       paragraphs: [
@@ -561,81 +638,16 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           seniorFix: 'Usa siempre la sintaxis obligatoria de MISRA-C: #define BIT(n) ((1UL) << (n)) con paréntesis dobles.'
         }
       ]
-    },
-    {
-      id: 'm1-c4',
-      chapterNumber: 'Capítulo 1.4',
-      title: 'Desplazamiento Lógico vs Aritmético: La Trampa Oculta del Operador >> en Hardware',
-      subtitle: 'Por qué desplazar un int32_t negativo inunda el registro de unos y cómo la CPU ejecuta LSR vs ASR en ensamblador',
-      paragraphs: [
-        'En el lenguaje C estándar (ISO/IEC 9899), el operador de desplazamiento a la derecha (>>) presenta un comportamiento dual fascinante y peligroso: no realiza una única operación fija en la ALU del microcontrolador, sino que su traducción a código máquina depende estrictamente de si la variable tiene o no signo (unsigned vs signed).',
-        'Cuando operas sobre tipos sin signo (<stdint.h>: uint8_t, uint16_t, uint32_t) o literales con sufijo U / UL, el compilador emite una instrucción de Desplazamiento Lógico a la Derecha (en arquitectura ARM Thumb-2: "LSR", Logical Shift Right). En un desplazamiento lógico de N posiciones, todos los bits se mueven N casillas hacia la derecha, los bits salientes por la derecha se descartan y las nuevas posiciones que entran por el extremo izquierdo (los bits más significativos, MSB) se rellenan obligatoriamente con CEROS (0s). Esto garantiza que la máscara o el campo numérico quede limpio y aislado.',
-        'Por el contrario, cuando aplicas (>>) sobre un tipo entero con signo (int8_t, int16_t, int32_t) y el valor es negativo (es decir, el bit más a la izquierda, el bit de signo, vale 1), el compilador emite una instrucción de Desplazamiento Aritmético a la Derecha (en ARM: "ASR", Arithmetic Shift Right). Para preservar el signo matemático del número en complemento a dos, el circuito de la ALU copia y propaga el bit de signo, ¡rellenando todas las nuevas posiciones de la izquierda con UNOS (1s)!',
-        'Si un desarrollador de firmware olvida colocar el sufijo "UL" en una constante o utiliza un int32_t ordinario para leer un registro de 32 bits cuyo bit 31 esté encendido (como el bit de habilitación de un periférico o una bandera de interrupción), aplicar (reg >> 4) propagará un reguero de unos que convertirá 0x80000000 en 0xF8000000. Al combinarlo posteriormente con un OR o evaluarlo en una condición lógica, el programa tomará decisiones erróneas. Por este motivo, la norma aeroespacial y de automoción MISRA-C:2012 Regla 10.1 prohíbe de forma taxativa el uso de los operadores de desplazamiento (<< y >>) sobre cualquier tipo de dato con signo.'
-      ],
-      formulas: [
-        {
-          name: '1. Desplazamiento Lógico (uint32_t)',
-          expression: '0x80000000UL >> 4  -->  0x08000000UL',
-          explanation: 'La CPU ejecuta LSR (Logical Shift Right). Los 4 bits superiores que entran por la izquierda son siempre 0000.'
-        },
-        {
-          name: '2. Desplazamiento Aritmético (int32_t negativo)',
-          expression: '((int32_t)0x80000000) >> 4  -->  0xF8000000',
-          explanation: 'La CPU ejecuta ASR (Arithmetic Shift Right). Como el bit 31 es 1, los 4 bits superiores que entran se rellenan con 1111 (0xF).'
-        },
-        {
-          name: '3. Regla MISRA-C:2012 10.1 (Tipos Sin Signo Obligatorios)',
-          expression: 'uint32_t campo = (reg_u32 >> pos) & mascara;',
-          explanation: 'Tanto el registro como el desplazamiento y la máscara deben ser estrictamente de tipos sin signo (unsigned).'
-        }
-      ],
-      table: {
-        headers: ['Tipo de Operando', 'Instrucción ARM Cortex-M / RISC-V', 'Tratamiento de Bits Entrantes por la Izquierda', 'Resultado Práctico con 0x80000000 >> 4'],
-        rows: [
-          ['uint32_t (Sin Signo / UL)', 'LSR (Logical Shift Right)', 'Rellena con CEROS (0s) siempre', '0x08000000 (Limpio, campo preservado)'],
-          ['int32_t positivo (> 0)', 'ASR (Arithmetic Shift Right)', 'Rellena con CEROS (0s) al ser signo 0', '0x08000000 (Comportamiento coincidente)'],
-          ['int32_t negativo (< 0)', 'ASR (Arithmetic Shift Right)', 'Rellena con UNOS (1s) propagando el signo', '0xF8000000 (¡Inundación catastrófica de unos!)']
-        ]
-      },
-      workedExample: {
-        title: 'Ejemplo Resuelto: El Desastre Silencioso de Extraer un Campo de Hardware con un Tipo con Signo',
-        problemStatement:
-          'Un sensor de presión industrial almacena su código de estado en los 4 bits superiores [31:28] de un registro de 32 bits. Si el registro vale 0x80000000 (bit 31 activo), compara el resultado de extraer el código con uint32_t frente a int32_t.',
-        steps: [
-          '1. Extracción con uint32_t (Correcto): uint32_t reg_u = 0x80000000UL; uint32_t status_u = (reg_u >> 28);',
-          '2. El microcontrolador ejecuta LSR. Los 28 bits que caen se descartan y por la izquierda entran 28 ceros: 0x80000000 >> 28 = 0x00000008 (código 8, correcto).',
-          '3. Extracción con int32_t (Peligro): int32_t reg_s = (int32_t)0x80000000; int32_t status_s = (reg_s >> 28);',
-          '4. El procesador ejecuta ASR. Como el bit 31 era 1 (número negativo), se propagan 28 unos: 0x80000000 >> 28 = 0xFFFFFFF8 (-8 en decimal). Si luego haces if (status == 8), la condición fallará estrepitosamente.'
-        ],
-        codeOrMath: `// ✅ EXTRACCIÓN CORRECTA (LSR):\nuint32_t reg_u    = 0x80000000UL;\nuint32_t status_u = (reg_u >> 28); // 0x00000008 (Decimal: 8)\n\n// ❌ BUG SILENCIOSO (ASR):\nint32_t  reg_s    = (int32_t)0x80000000;\nint32_t  status_s = (reg_s >> 28); // 0xFFFFFFF8 (Decimal: -8)`,
-        conclusion:
-          'En el cuaderno físico anota esta regla en mayúsculas: JAMÁS uses tipos con signo (int, int32_t) para manipular registros, extraer campos o aplicar desplazamientos (>>).'
-      },
-      pitfalls: [
-        {
-          mistake: 'Hacer desplazamiento a la derecha sobre una variable declarada simplemente como "int"',
-          whyItFails:
-            'En C, "int" tiene signo. Si el número toma un valor negativo o tiene el bit MSB a 1, la CPU aplicará ASR y rellenará la izquierda con unos, corrompiendo cualquier cálculo de máscara.',
-          seniorFix: 'Usa siempre tipos de <stdint.h> con prefijo "u" (uint32_t, uint16_t, uint8_t).'
-        },
-        {
-          mistake: 'Desplazar más bits que el tamaño del tipo (ej. uint32_t x; x >> 32;)',
-          whyItFails:
-            'En el estándar C, desplazar un número un número de posiciones mayor o igual a su tamaño en bits es Comportamiento Indefinido (Undefined Behavior). Muchas CPUs enmascaran el desplazamiento con 0x1F, por lo que x >> 32 se convierte en x >> 0 (no hace nada).',
-          seniorFix: 'Verifica que el desplazamiento n esté estrictamente en el rango 0 <= n < 32.'
-        }
-      ]
     }
   ],
 
   // =========================================================================
-  // MÓDULO 2: ARQUITECTURA DEL CHIP, MAPA DE MEMORIA Y RELOJES (RCC)
+  // MÓDULO 4
   // =========================================================================
-  2: [
+  4: [
     {
-      id: 'm2-c1',
-      chapterNumber: 'Capítulo 2.1',
+      id: 'm4-c1',
+      chapterNumber: 'Capítulo 4.1',
       title: 'El Proceso de Compilación, el Linker Script (.ld) y el Código de Arranque (Reset_Handler)',
       subtitle: 'Qué ocurre desde que pulsas "Compilar" hasta el instante exacto en que se ejecuta la primera línea de main()',
       paragraphs: [
@@ -677,8 +689,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm2-c2',
-      chapterNumber: 'Capítulo 2.2',
+      id: 'm4-c2',
+      chapterNumber: 'Capítulo 4.2',
       title: 'Árbol de Relojes (Clock Tree), PLL y Puertas de Reloj (Clock Gating)',
       subtitle: 'De dónde sale el pulso que mueve al procesador y por qué existen distintos buses de velocidad (AHB, APB1, APB2)',
       paragraphs: [
@@ -719,12 +731,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 3: DOMINANDO GPIO A NIVEL DE SILICIO
+  // MÓDULO 5
   // =========================================================================
-  3: [
+  5: [
     {
-      id: 'm3-c1',
-      chapterNumber: 'Capítulo 3.1',
+      id: 'm5-c1',
+      chapterNumber: 'Capítulo 5.1',
       title: 'Ingeniería Eléctrica del Pin para Programadores: Ley de Ohm, Corriente Máxima y Niveles Lógicos',
       subtitle: 'Cuántos miliamperios soporta un pin, cómo calcular resistencias y cuándo necesitas un transistor externo',
       paragraphs: [
@@ -764,8 +776,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm3-c2',
-      chapterNumber: 'Capítulo 3.2',
+      id: 'm5-c2',
+      chapterNumber: 'Capítulo 5.2',
       title: 'El Rebote Mecánico (Switch Bounce) y Algoritmos de Filtrado (Debouncing en C)',
       subtitle: 'Por qué al pulsar un botón una sola vez tu microcontrolador cuenta 20 pulsaciones y cómo solucionarlo sin bloquear la CPU',
       paragraphs: [
@@ -803,8 +815,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm3-c3',
-      chapterNumber: 'Capítulo 3.3',
+      id: 'm5-c3',
+      chapterNumber: 'Capítulo 5.3',
       title: 'Tipos Enumerados (enum) en Firmware: Eliminación de Números Mágicos, Máquinas de Estado y Códigos de Error',
       subtitle: 'Cómo tipar configuraciones de hardware, códigos de retorno y estados del sistema bajo la norma MISRA-C',
       paragraphs: [
@@ -870,12 +882,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 4: INTERRUPCIONES (ISR), NVIC, VOLATILE Y CONCURRENCIA
+  // MÓDULO 6
   // =========================================================================
-  4: [
+  6: [
     {
-      id: 'm4-c1',
-      chapterNumber: 'Capítulo 4.1',
+      id: 'm6-c1',
+      chapterNumber: 'Capítulo 6.1',
       title: 'Arquitectura del Controlador NVIC: Prioridades de Preempción, Anidamiento y Tail-Chaining',
       subtitle: 'Cómo decide el procesador qué interrupción entra primero y qué pasa si llega una más urgente a mitad de otra',
       paragraphs: [
@@ -915,8 +927,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm4-c2',
-      chapterNumber: 'Capítulo 4.2',
+      id: 'm6-c2',
+      chapterNumber: 'Capítulo 6.2',
       title: 'Atomicidad de Datos Compartidos y Diseño de Secciones Críticas',
       subtitle: 'Por qué "volatile" NO basta para proteger variables grandes o estructuras compartidas con una ISR',
       paragraphs: [
@@ -957,12 +969,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 5: TIMERS, CONTADORES Y PWM POR HARDWARE
+  // MÓDULO 7
   // =========================================================================
-  5: [
+  7: [
     {
-      id: 'm5-c1',
-      chapterNumber: 'Capítulo 5.1',
+      id: 'm7-c1',
+      chapterNumber: 'Capítulo 7.1',
       title: 'Los 3 Modos Maestros de un Timer: Time-Base, Input Capture y Output Compare (PWM)',
       subtitle: 'Cómo un mismo contador de hardware sirve para medir tiempos, medir la anchura de un pulso entrante o generar ondas',
       paragraphs: [
@@ -1001,8 +1013,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm5-c2',
-      chapterNumber: 'Capítulo 5.2',
+      id: 'm7-c2',
+      chapterNumber: 'Capítulo 7.2',
       title: 'Registros Sombra (Shadow Registers / Preload) y Sincronización sin Glitches en PWM',
       subtitle: 'Por qué existe el bit OC1PE / ARPE en los Datasheets y qué ocurre si cambias el periodo o ciclo de trabajo a mitad de cuenta',
       paragraphs: [
@@ -1043,12 +1055,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 6: PROTOCOLOS DE COMUNICACIÓN EN SERIE (UART, I2C, SPI)
+  // MÓDULO 8
   // =========================================================================
-  6: [
+  8: [
     {
-      id: 'm6-c1',
-      chapterNumber: 'Capítulo 6.1',
+      id: 'm8-c1',
+      chapterNumber: 'Capítulo 8.1',
       title: 'Diseño de un Ring Buffer (Buffer Circular) en C para Recepción UART por Interrupción',
       subtitle: 'La estructura de datos más importante de los sistemas embebidos explicada paso a paso',
       paragraphs: [
@@ -1087,8 +1099,69 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm6-c2',
-      chapterNumber: 'Capítulo 6.2',
+      id: 'm8-c2',
+      chapterNumber: 'Capítulo 8.2',
+      title: 'Cálculo de Baud Rate, Sobremuestreo x16 y Errores de Trama en UART',
+      subtitle: 'La fórmula USART_BRR, porcentaje de error admisible y detección de ruidos con banderas FE, PE y ORE',
+      paragraphs: [
+        'En una comunicación UART asíncrona no existe un cable de reloj compartido que sincronice al emisor y al receptor. Ambos dispositivos deben acordar previamente la misma velocidad en baudios (ej. 115.200 baudios). Para muestrear el bit exactamente en su centro físico temporal y evitar desfasajes por tolerancias de los cristales de cuarzo, el hardware de la UART sobremuestrea cada bit entrante 16 veces (Oversampling x16).',
+        'El registro USART_BRR en procesadores como STM32 contiene un divisor fraccionario compuesto por una parte entera (DIV_Mantissa) y una parte fraccionaria (DIV_Fraction). El reloj del bus periférico (ej. APB1 a 42 MHz) se divide según la ecuación USARTDIV = f_CK / (16 * BaudRate). Si el divisor resultante acumula un error porcentual superior al 2.5%, la acumulación de deriva temporal entre el bit de inicio (Start) y el bit de parada (Stop) hará que el receptor lea un bit en el momento de la transición, corrompiendo la trama.',
+        'Cuando se produce un desajuste temporal o ruido electromagnético en la línea RX, el hardware activa banderas de error en el registro de estado (SR): FE (Framing Error, cuando el bit de stop no es detectado a nivel alto), PE (Parity Error, cuando la paridad calculada no coincide) y ORE (Overrun Error, cuando llega un nuevo byte antes de que la CPU haya leído el anterior del registro DR). Un driver profesional de misión crítica debe verificar y limpiar estas banderas en cada interrupción.'
+      ],
+      formulas: [
+        {
+          name: '1. Ecuación Oficial del Baud Rate (Oversampling x16)',
+          expression: 'USARTDIV = f_CK / (16 * BaudRate)',
+          explanation: 'Calcula el valor que debe programarse en el registro fraccionario USART_BRR para fijar la velocidad del puerto.'
+        },
+        {
+          name: '2. Criterio de Error Máximo de Baud Rate',
+          expression: 'Error_Porcentual = |(Baud_Real - Baud_Deseado) / Baud_Deseado| * 100% < 2.5%',
+          explanation: 'Un error mayor al 2.5% garantiza corrupción de datos en paquetes de 8N1 por deriva del reloj entre emisor y receptor.'
+        }
+      ],
+      table: {
+        headers: ['Bandera de Error UART', 'Causa Física en la Línea', 'Consecuencia en el Firmware', 'Acción de Recuperación'],
+        rows: [
+          ['FE (Framing Error)', 'Línea en nivel bajo durante el bit de Stop', 'Byte corrupto por desfase de reloj o desconexión', 'Leer SR y luego DR para limpiar la bandera'],
+          ['ORE (Overrun Error)', 'Llegó un byte y el anterior aún no se leyó', 'Pérdida irrecuperable de 1 byte de datos', 'Vaciar el registro DR y reiniciar el buffer'],
+          ['PE (Parity Error)', 'El número de bits 1 no coincide con el bit de paridad', 'Ruido eléctrico conmutó un bit en el cable', 'Descartar el paquete y solicitar retransmisión']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Cálculo del Registro USART_BRR a 115200 Baudios con Reloj de 42 MHz',
+        problemStatement:
+          'El bus APB1 alimenta a USART2 a una frecuencia f_CK = 42.000.000 Hz. Calcula el valor hexadecimal exacto que debe escribirse en USART_BRR para obtener 115.200 baudios y determina el error porcentual.',
+        steps: [
+          '1. Calculamos USARTDIV = 42.000.000 / (16 * 115.200) = 42.000.000 / 1.843.200 = 22.786458.',
+          '2. La parte entera es DIV_Mantissa = 22 = 0x16.',
+          '3. La parte fraccionaria es 0.786458 * 16 = 12.583 -> redondeamos a 13 = 0x0D.',
+          '4. Combinamos ambos campos en el registro de 16 bits: USART_BRR = (0x16 << 4) | 0x0D = 0x016D.'
+        ],
+        codeOrMath: `USARTDIV = 42000000 / (16 * 115200) = 22.786458
+Mantissa = 22 (0x16) | Fracción = round(0.786458 * 16) = 13 (0x0D)
+USART2->BRR = 0x016D; // Baud real = 42000000 / (16 * 22.8125) = 115068 bps (Error: 0.11%)`,
+        conclusion:
+          'El error es de solo 0.11%, muy por debajo del límite crítico del 2.5%, garantizando comunicación robusta y sin pérdidas.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Ignorar la bandera ORE (Overrun Error) en la rutina de interrupción de UART',
+          whyItFails:
+            'En muchos microcontroladores ARM Cortex-M, si salta un Overrun Error y la ISR no lo limpia explícitamente leyendo SR y DR, la interrupción queda atascada permanentemente, congelando la CPU.',
+          seniorFix: 'En la ISR de UART comprueba if (USARTx->SR & USART_SR_ORE) { (void)USARTx->SR; (void)USARTx->DR; } para desbloquear el periférico.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 9
+  // =========================================================================
+  9: [
+    {
+      id: 'm9-c1',
+      chapterNumber: 'Capítulo 9.1',
       title: 'Los 4 Modos de Reloj en SPI (CPOL y CPHA) y Recuperación de Bloqueo en Bus I2C',
       subtitle: 'Cómo leer los cronogramas de polaridad/fase de SPI en un Datasheet y cómo rescatar un bus I2C atascado en 0V',
       paragraphs: [
@@ -1126,16 +1199,83 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           seniorFix: 'Espera siempre a que RXNE=1 y BSY=0 antes de volver a poner el pin CS en nivel alto.'
         }
       ]
+    },
+    {
+      id: 'm9-c2',
+      chapterNumber: 'Capítulo 9.2',
+      title: 'El Bus I2C a Silicio: Transistores Open-Drain, Pull-Up, START/STOP y ACK/NACK',
+      subtitle: 'Por qué I2C no produce cortocircuitos entre chips y cómo recuperarse del bug de bus colgado (Clock Stretching)',
+      paragraphs: [
+        'A diferencia de SPI, que utiliza líneas Push-Pull independientes con una señal de Chip Select por esclavo, el bus I2C comunica decenas de sensores a través de solo 2 cables: SDA (Serial Data) y SCL (Serial Clock). Para que múltiples transmisores puedan compartir el mismo cable sin riesgo de quemarse cuando uno escribe 0 y otro escribe 1, las salidas I2C se configuran obligatoriamente en modo Open-Drain (Drenador Abierto).',
+        'En Open-Drain, ningún chip puede empujar corriente hacia VDD: los transistores solo pueden tirar de la línea hacia 0V (GND) o soltarla en alta impedancia (Hi-Z). Son las resistencias Pull-Up externas (típicamente 4.7 kΩ para modo estándar a 100 kHz o 2.2 kΩ para Fast Mode a 400 kHz) las que elevan el voltaje a 3.3V cuando nadie transmite. Esto implementa por física de circuitos una lógica "AND cableada" (Wired-AND).',
+        'Cada byte transmitido en I2C consta de 8 bits seguidos por un noveno bit sagrado: el bit ACK/NACK (Acknowledge). En el noveno pulso de reloj, el emisor suelta la línea SDA; si el esclavo la tira a 0V, confirma recepción (ACK). Si el esclavo se cuelga a mitad de lectura mientras mantenía SDA en 0V, todo el bus quedará congelado permanentemente. La técnica de rescate industrial consiste en conmutar temporalmente el pin SCL a GPIO y emitir manualmente 9 pulsos de reloj para forzar al esclavo a soltar el bus.'
+      ],
+      formulas: [
+        {
+          name: '1. Constante de Tiempo RC de Subida en I2C',
+          expression: 't_r = 0.8473 * R_pullup * C_bus < 300 ns (Fast Mode)',
+          explanation: 'Determina el valor máximo de las resistencias Pull-Up para que la capacitancia parásita de la pista no redondee los flancos de reloj.'
+        },
+        {
+          name: '2. Algoritmo de Desbloqueo de Bus I2C Colgado',
+          expression: 'for (int i=0; i<9; i++) { SCL_LOW(); delay(); SCL_HIGH(); delay(); }',
+          explanation: 'Genera 9 ciclos manuales de reloj para que el esclavo atascado complete su byte y libere la línea SDA.'
+        }
+      ],
+      table: {
+        headers: ['Condición I2C', 'Comportamiento en SDA', 'Comportamiento en SCL', 'Significado en el Protocolo'],
+        rows: [
+          ['START', 'Flanco de Bajada (1 -> 0)', 'Permanece en Alto (1)', 'Inicia la sesión de comunicación en el bus'],
+          ['STOP', 'Flanco de Subida (0 -> 1)', 'Permanece en Alto (1)', 'Libera el bus para otros dispositivos maestros'],
+          ['ACK (Acknowledge)', 'Esclavo tira a 0V (Nivel Bajo)', 'Pulso 9 de reloj generado por el Master', 'Byte recibido y aceptado con éxito'],
+          ['NACK (Not Ack)', 'Permanece en 3.3V (Nivel Alto)', 'Pulso 9 de reloj generado por el Master', 'Fin de lectura o dirección no encontrada']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Rutina de Recuperación de Bus I2C Atascado en C',
+        problemStatement:
+          'Tras un reinicio del microcontrolador por Watchdog, la línea SDA se encuentra fija a 0V porque un sensor quedó a mitad de enviar un bit. Diseña la rutina de rescate en C antes de inicializar el periférico I2C.',
+        steps: [
+          '1. Configuramos SCL y SDA como salidas GPIO Open-Drain con Pull-Up.',
+          '2. Comprobamos si SDA está en bajo: if (PIN_SDA == 0).',
+          '3. Emitimos hasta 9 pulsos de reloj manuales en SCL alternando 1 y 0.',
+          '4. Tras soltar SDA, generamos una condición STOP manual (SDA de 0 a 1 con SCL alto) y reconfiguramos el periférico I2C.'
+        ],
+        codeOrMath: `void i2c_bus_recovery(void) {
+    // Conmutar SCL a GPIO Salida Open-Drain:
+    for (int i = 0; i < 9; i++) {
+        GPIOB->BSRR = (1UL << (6 + 16)); // SCL = 0
+        delay_us(5);
+        GPIOB->BSRR = (1UL << 6);        // SCL = 1
+        delay_us(5);
+        if ((GPIOB->IDR & (1UL << 7)) != 0UL) break; // ¡SDA liberada!
+    }
+    // Generar condición STOP manual:
+    GPIOB->BSRR = (1UL << (7 + 16)); delay_us(5); // SDA = 0
+    GPIOB->BSRR = (1UL << 6);        delay_us(5); // SCL = 1
+    GPIOB->BSRR = (1UL << 7);        delay_us(5); // SDA = 1 (STOP!)
+}`,
+        conclusion:
+          'Esta rutina de 10 líneas salva a equipos industriales de quedarse bloqueados en campo sin necesidad de cortar la alimentación.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Configurar los pines de I2C como Push-Pull en lugar de Open-Drain',
+          whyItFails:
+            'Cuando el Master transmita un 1 (+3.3V) y el sensor transmita un ACK (0V), se creará un cortocircuito directo entre VDD y GND a través de los transistores del silicio, pudiendo quemar el pin.',
+          seniorFix: 'Verifica siempre que OTYPER tenga el bit en 1 (GPIO_OType_OD).'
+        }
+      ]
     }
   ],
 
   // =========================================================================
-  // MÓDULO 7: CONVERSIÓN ANALÓGICA-DIGITAL (ADC) Y DMA
+  // MÓDULO 10
   // =========================================================================
-  7: [
+  10: [
     {
-      id: 'm7-c1',
-      chapterNumber: 'Capítulo 7.1',
+      id: 'm10-c1',
+      chapterNumber: 'Capítulo 10.1',
       title: 'Aritmética en Coma Fija, Filtrado Digital de Sensores (Media Móvil / EMA) y Teorema de Nyquist',
       subtitle: 'Cómo limpiar el ruido analógico de un sensor en C sin gastar ciclos en números de coma flotante (float)',
       paragraphs: [
@@ -1173,8 +1313,67 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm7-c2',
-      chapterNumber: 'Capítulo 7.2',
+      id: 'm10-c2',
+      chapterNumber: 'Capítulo 10.2',
+      title: 'Calibración de Offset, Referencia Interna VREFINT y Tiempos de Muestreo SMPR',
+      subtitle: 'Cómo medir voltajes absolutos sin importar si la batería cae de 3.3V a 2.7V mediante el canal interno VREFINT',
+      paragraphs: [
+        'Un conversor analógico-digital (ADC) de 12 bits no mide voltajes en voltios absolutos: mide la proporción entre el voltaje de entrada (V_IN) y su voltaje de referencia superior (V_REF+). En la mayoría de placas de bajo coste, V_REF+ está conectado directamente a la línea de alimentación VDD (3.3V). Si la batería se descarga y VDD cae a 3.0V, una lectura de 1.5V que antes daba el código 1861 ahora dará 2048, falseando por completo las medidas del sensor.',
+        'Para resolver esto sin añadir componentes externos caros, los microcontroladores de grado industrial incluyen en su silicio una Referencia de Tensión Interna de Bandgap ultraprecisa llamada VREFINT (típicamente 1.20V con tolerancia de ±1%, independiente de las fluctuaciones de VDD). Mapeada internamente a un canal especial (ej. canal 17 en STM32), permite calcular en tiempo real el valor real exacto de VDD aplicando una simple regla de tres.',
+        'Además, debes dominar el registro de tiempo de muestreo (SMPR): el circuito interno del ADC conecta un pequeño condensador de retención (Sample and Hold, ~5 pF) a través de un interruptor analógico. Si la fuente externa tiene una impedancia de salida alta (ej. un sensor de 50 kΩ), el condensador no se cargará a tiempo durante un muestreo rápido de 3 ciclos, falseando la lectura a la baja. Incrementar los ciclos de muestreo a 84 o 480 ciclos en SMPR resuelve el problema con precisión matemática.'
+      ],
+      formulas: [
+        {
+          name: '1. Cálculo Dinámico de VDD Real usando VREFINT',
+          expression: 'VDD_real = (VREFINT_CAL * 3.3V) / ADC_raw_VREFINT',
+          explanation: 'Permite conocer el voltaje exacto de la batería del dispositivo sin componentes externos.'
+        },
+        {
+          name: '2. Tiempo Mínimo de Muestreo según Impedancia de Entrada',
+          expression: 'T_sample > (R_fuente + R_adc) * C_sh * ln(2^14)',
+          explanation: 'Garantiza que el condensador interno se cargue al 99.98% del voltaje real antes de iniciar la conversión SAR.'
+        }
+      ],
+      table: {
+        headers: ['Impedancia de Fuente (R_IN)', 'Ciclos de Muestreo Recomendados (SMPR)', 'Tiempo T_sample (a 14 MHz ADC)', 'Error si no se respeta'],
+        rows: [
+          ['< 1 kΩ (Baja impedancia / Op-Amp)', '3 a 15 ciclos', '0.2 µs – 1.0 µs', '< 0.5 LSB (Máxima precisión)'],
+          ['10 kΩ (Potenciómetro / Divisor)', '84 ciclos', '6.0 µs', '~2 LSB si se muestrea muy rápido'],
+          ['> 50 kΩ (Sensores pasivos)', '480 ciclos', '34.2 µs', '> 10 LSB (Lectura completamente falsa)']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Medida Real de Batería con VREFINT en STM32',
+        problemStatement:
+          'En la memoria ROM de calibración de fábrica está grabado VREFINT_CAL = 1500 (medido a 3.30V exactos). Tu firmware lee el canal VREFINT y obtiene el código 1650. ¿Cuánto vale el voltaje real de la batería VDD?',
+        steps: [
+          '1. Aplicamos la fórmula de compensación: VDD_actual = 3.30V * (VREFINT_CAL / lectura_actual).',
+          '2. VDD_actual = 3.30V * (1500 / 1650) = 3.30V * 0.90909 = 3.00V.',
+          '3. Si un sensor en el canal 1 entrega el código raw = 2000, su voltaje real en voltios es: V_pin = (2000 / 4095) * 3.00V = 1.465V (en lugar de 1.611V que habrías calculado si asumieras erróneamente 3.3V).'
+        ],
+        codeOrMath: `uint32_t vdd_mv = (3300UL * (*((uint16_t *)0x1FFF7A2A))) / adc_raw_vrefint;
+uint32_t v_pin_mv = (adc_raw_canal * vdd_mv) / 4095UL;`,
+        conclusion:
+          'Gracias a VREFINT tu instrumento médico o sensor industrial mide con precisión absoluta hasta el último milivoltio antes de apagarse.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Conectar un divisor resistivo de alta impedancia (ej. dos resistencias de 1 MΩ) directamente al pin del ADC',
+          whyItFails:
+            'La corriente que absorbe el condensador interno de muestreo distorsiona por completo la tensión del divisor, dando errores de más de un 30%.',
+          seniorFix: 'Usa resistencias menores a 10 kΩ o añade un buffer seguidor con amplificador operacional (Op-Amp) antes del pin.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 11
+  // =========================================================================
+  11: [
+    {
+      id: 'm11-c1',
+      chapterNumber: 'Capítulo 11.1',
       title: 'Configuración de Anchos de Palabra en DMA (PSIZE / MSIZE) y Referencia Interna VREFINT',
       subtitle: 'Cómo evitar que el DMA corrompa arrays en RAM y cómo medir el voltaje real de una batería cuando cae VDD',
       paragraphs: [
@@ -1212,16 +1411,78 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           seniorFix: 'Los buffers usados por el DMA deben ser siempre globales o declarados con la palabra clave "static" para que vivan permanentemente en la sección .bss/.data de SRAM.'
         }
       ]
+    },
+    {
+      id: 'm11-c2',
+      chapterNumber: 'Capítulo 11.2',
+      title: 'Buffers Circulares Ping-Pong y Transferencias Autónomas Periférico a Memoria con DMA',
+      subtitle: 'Procesamiento en tiempo real sin pausas de audio, radio y telemetría mediante las banderas HT (Half Transfer) y TC (Transfer Complete)',
+      paragraphs: [
+        'En aplicaciones de adquisición continua de alta velocidad (como capturar audio I2S a 48 kHz o muestrear un sensor a 100 kSPS), no puedes detener el DMA para procesar los datos, porque durante los microsegundos que tarda la CPU en analizar las muestras el ADC perdería datos en el bus. La arquitectura estándar para resolver esto es el Buffer Doble o "Buffer Ping-Pong".',
+        'Se asigna un único array continuo en memoria RAM dividido en dos mitades simétricas: Mitad 0 (Buffer Ping, ej. muestras 0..127) y Mitad 1 (Buffer Pong, ej. muestras 128..255). Se configura el controlador DMA en modo Circular (CIRC = 1). Cuando el DMA termina de rellenar la Mitad 0, genera la interrupción de Mitad de Transferencia (HT - Half Transfer); en ese instante exacto, la CPU procesa la Mitad 0 mientras el DMA, de forma 100% autónoma por hardware, continúa rellenando la Mitad 1 sin detenerse.',
+        'Cuando el DMA alcanza el final de la Mitad 1, dispara la interrupción de Transferencia Completa (TC - Transfer Complete) y regresa automáticamente a la muestra 0. Ahora la CPU procesa la Mitad 1 mientras el DMA vuelve a escribir en la Mitad 0. Ambos circuitos (CPU y DMA) trabajan en paralelo sin colisiones ni pérdidas de datos jamás.'
+      ],
+      formulas: [
+        {
+          name: '1. Frecuencia de Interrupciones DMA Ping-Pong',
+          expression: 'f_irq = (2 * f_muestreo) / N_muestras_totales',
+          explanation: 'La CPU solo es interrumpida 2 veces por ciclo completo de buffer, reduciendo la carga de CPU en más de un 95%.'
+        },
+        {
+          name: '2. Tasa de Rendimiento Libre de CPU',
+          expression: 'Ahorro_CPU = (1 - (T_isr * f_irq)) * 100%',
+          explanation: 'Demuestra el beneficio del DMA: la CPU pasa de procesar muestra a muestra a operar en bloques vectoriales.'
+        }
+      ],
+      table: {
+        headers: ['Evento de Interrupción DMA', 'Posición del Puntero DMA', 'Qué hace el DMA en ese instante', 'Qué procesa la CPU en paralelo'],
+        rows: [
+          ['HTIF (Half Transfer Interrupt)', 'Muestra N/2 (fin Mitad 0)', 'Empieza a escribir en Mitad 1 (Pong)', 'Procesa / filtra las muestras de la Mitad 0 (Ping)'],
+          ['TCIF (Transfer Complete Interrupt)', 'Muestra N (fin Mitad 1)', 'Vuelve a escribir en Mitad 0 (Ping)', 'Procesa / filtra las muestras de la Mitad 1 (Pong)'],
+          ['TEIF (Transfer Error Interrupt)', 'Dirección protegida / desalineada', 'Se detiene por fallo de bus', 'Gestiona excepción y reinicia el stream']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Esqueleto de Rutina de Interrupción DMA Ping-Pong en C',
+        problemStatement:
+          'Escribe la rutina de interrupción para DMA1 Stream 0 que atiende a un ADC en modo doble buffer de 256 muestras de audio.',
+        steps: [
+          '1. Comprobamos la bandera HTIF0 (Mitad de buffer alcanzada). Limpiamos la bandera con CTCIF0/CHTIF0 y procesamos el bloque &buffer[0].',
+          '2. Comprobamos la bandera TCIF0 (Fin de buffer alcanzado). Limpiamos la bandera y procesamos el bloque &buffer[128].'
+        ],
+        codeOrMath: `void DMA1_Stream0_IRQHandler(void) {
+    // 1. Mitad de buffer llena (Ping):
+    if (DMA1->LISR & DMA_LISR_HTIF0) {
+        DMA1->LIFCR = DMA_LIFCR_CHTIF0; // Limpia bandera HT
+        procesar_audio_dsp(&audio_buffer[0], 128); // Procesa Mitad 0
+    }
+    // 2. Buffer completo lleno (Pong):
+    if (DMA1->LISR & DMA_LISR_TCIF0) {
+        DMA1->LIFCR = DMA_LIFCR_CTCIF0; // Limpia bandera TC
+        procesar_audio_dsp(&audio_buffer[128], 128); // Procesa Mitad 1
+    }
+}`,
+        conclusion:
+          'Con este diseño el flujo de audio o telemetría es infinito y continuo; nunca hay silencios ni sobreescrituras accidentales.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Colocar el buffer de DMA en la pila local (Stack) de una función en lugar de memoria global o static',
+          whyItFails:
+            'Al salir de la función, el espacio del Stack es reutilizado por otras funciones mientras el DMA sigue escribiendo en segundo plano, corrompiendo la memoria y causando HardFault.',
+          seniorFix: 'Declara siempre los buffers de DMA como variables globales o static en SRAM.'
+        }
+      ]
     }
   ],
 
   // =========================================================================
-  // MÓDULO 8: ARQUITECTURA DE FIRMWARE PROFESIONAL, FSM, LOW-POWER Y RTOS
+  // MÓDULO 12
   // =========================================================================
-  8: [
+  12: [
     {
-      id: 'm8-c1',
-      chapterNumber: 'Capítulo 8.1',
+      id: 'm12-c1',
+      chapterNumber: 'Capítulo 12.1',
       title: 'Arquitectura en Capas (Clean Embedded Architecture) y Diseño de Drivers Opacos en C',
       subtitle: 'Cómo estructuran sus carpetas y archivos .h/.c las empresas de automoción, aeroespacial y dispositivos médicos',
       paragraphs: [
@@ -1259,8 +1520,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm8-c2',
-      chapterNumber: 'Capítulo 8.2',
+      id: 'm12-c2',
+      chapterNumber: 'Capítulo 12.2',
       title: 'Planificación en Tiempo Real: Superloop Cooperativo con FSM vs RTOS Preemptivo (FreeRTOS / Zephyr)',
       subtitle: 'Cuándo usar un bucle de máquinas de estado y cuándo necesitas un RTOS con semáforos, mutex y colas',
       paragraphs: [
@@ -1300,8 +1561,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm8-c3',
-      chapterNumber: 'Capítulo 8.3',
+      id: 'm12-c3',
+      chapterNumber: 'Capítulo 12.3',
       title: 'Punteros a Función, Callbacks y la Técnica static inline en Cabeceras .h',
       subtitle: 'Desacoplamiento asíncrono entre interrupciones y aplicación, y el diseño de funciones ultrarrápidas sin colisiones en el Linker',
       paragraphs: [
@@ -1367,12 +1628,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 9: PROYECTOS MULTI-ARCHIVO (.h/.c), CREACIÓN DE LIBRERÍAS Y TOOLCHAIN
+  // MÓDULO 13
   // =========================================================================
-  9: [
+  13: [
     {
-      id: 'm9-c1',
-      chapterNumber: 'Capítulo 9.1',
+      id: 'm13-c1',
+      chapterNumber: 'Capítulo 13.1',
       title: 'Cómo Dividir un Programa en Múltiples Archivos (.h y .c): Declaración vs Definición y "static / extern / const"',
       subtitle: 'La anatomía exacta de un módulo en C profesional y cómo evitar los errores "multiple definition" y "undefined reference"',
       paragraphs: [
@@ -1413,8 +1674,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm9-c2',
-      chapterNumber: 'Capítulo 9.2',
+      id: 'm13-c2',
+      chapterNumber: 'Capítulo 13.2',
       title: 'Diseño de Librerías Multi-Instancia, Callbacks con Punteros a Funciones y Serialización con "union"',
       subtitle: 'Cómo crear librerías orientadas a objetos en C puro y cómo empaquetar tramas de comunicación sin esfuerzo',
       paragraphs: [
@@ -1453,8 +1714,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm9-c3',
-      chapterNumber: 'Capítulo 9.3',
+      id: 'm13-c3',
+      chapterNumber: 'Capítulo 13.3',
       title: 'El Pipeline Completo del Toolchain: De Múltiples .c a Objetos (.o), Librerías Estáticas (.a), Linker (.elf) y Mapa (.map)',
       subtitle: 'Qué ocurre exactamente cuando ejecutas make y cómo empaquetar y auditar librerías profesionales',
       paragraphs: [
@@ -1496,12 +1757,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 10: INGENIERÍA DE FIRMWARE SENIOR EN PRODUCCIÓN
+  // MÓDULO 14
   // =========================================================================
-  10: [
+  14: [
     {
-      id: 'm10-c1',
-      chapterNumber: 'Capítulo 10.1',
+      id: 'm14-c1',
+      chapterNumber: 'Capítulo 14.1',
       title: 'Diseño de Bootloaders, Particionado de Flash, Verificación CRC32 y Actualizaciones OTA',
       subtitle: 'Cómo dividir la memoria Flash de un microcontrolador para que pueda actualizarse a sí mismo sin quedar nunca inservible',
       paragraphs: [
@@ -1541,8 +1802,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm10-c2',
-      chapterNumber: 'Capítulo 10.2',
+      id: 'm14-c2',
+      chapterNumber: 'Capítulo 14.2',
       title: 'Diagnóstico Forense de Cuelgues (HardFault_Handler), Registros CFSR/BFAR y "Stack Painting"',
       subtitle: 'Cómo encontrar en 2 minutos la línea exacta de C que colgó un microcontrolador sin adivinar a ciegas',
       paragraphs: [
@@ -1583,8 +1844,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm10-c3',
-      chapterNumber: 'Capítulo 10.3',
+      id: 'm14-c3',
+      chapterNumber: 'Capítulo 14.3',
       title: 'Normativa Industrial MISRA-C, Control PID Discreto y Testing Unitario Off-Target en PC',
       subtitle: 'Las reglas de oro para escribir código C de misión crítica y cómo verificarlo con tests automatizados',
       paragraphs: [
@@ -1625,12 +1886,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 11: NORMATIVA ESPACIAL Y DEFENSA (EUROPA ECSS vs AMÉRICA NASA/DO-178C) Y HARDWARE RAD-HARD
+  // MÓDULO 15
   // =========================================================================
-  11: [
+  15: [
     {
-      id: 'm11-c1',
-      chapterNumber: 'Capítulo 11.1',
+      id: 'm15-c1',
+      chapterNumber: 'Capítulo 15.1',
       title: 'Marco Normativo Espacial y de Defensa: Europa (ECSS-E-ST-40C / Q-ST-80C) frente a América (NASA JPL / DO-178C)',
       subtitle: 'Nomenclatura legal (SHALL / SHOULD / MAY), Categorías de Criticidad (A, B, C, D) vs DAL (A..E) y Regla de Propagación de Fallos',
       paragraphs: [
@@ -1676,8 +1937,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm11-c2',
-      chapterNumber: 'Capítulo 11.2',
+      id: 'm15-c2',
+      chapterNumber: 'Capítulo 15.2',
       title: 'Lo que SE PUEDE, NO SE DEBE y ESTÁ PROHIBIDO: ECSS Annex U.2 (14 Checks) vs NASA JPL Power of Ten',
       subtitle: 'La guía definitiva para tu cuaderno de las reglas de codificación C en misiones espaciales y de defensa',
       paragraphs: [
@@ -1722,8 +1983,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm11-c3',
-      chapterNumber: 'Capítulo 11.3',
+      id: 'm15-c3',
+      chapterNumber: 'Capítulo 15.3',
       title: 'Verificación Crítica: Cobertura 100% MC/DC, Valores Frontera (n-1, n, n+1), Código Objeto y HSIA',
       subtitle: 'Cómo se prueba y certifica el software de Categoría A y B según ECSS-E-ST-40C (5.5.3.2c / 5.8.3.5) y ECSS-Q-ST-80C (6.2.2.8 / 6.2.3.7)',
       paragraphs: [
@@ -1775,8 +2036,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm11-c4',
-      chapterNumber: 'Capítulo 11.4',
+      id: 'm15-c4',
+      chapterNumber: 'Capítulo 15.4',
       title: 'Fundamentos de Hardware Espacial (Rad-Hard): Radiación Cósmica (SEU / SEL), EDAC, Scrubbing, TMR y Márgenes ECSS',
       subtitle: 'Qué le hacen los protones y partículas pesadas al silicio en órbita y las fórmulas oficiales de memoria y CPU de ECSS-E-ST-40C Annex M',
       paragraphs: [
@@ -1835,12 +2096,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 12: RTOS A NIVEL DE SILICIO (FREERTOS / ZEPHYR / RTEMS)
+  // MÓDULO 16
   // =========================================================================
-  12: [
+  16: [
     {
-      id: 'm12-c1',
-      chapterNumber: 'Capítulo 12.1',
+      id: 'm16-c1',
+      chapterNumber: 'Capítulo 16.1',
       title: 'Anatomía del Cambio de Contexto en Silicio: De SysTick y PendSV al TCB',
       subtitle: 'Cómo un microcontrolador mononúcleo conmuta tareas apilando y desapilando registros en SRAM',
       paragraphs: [
@@ -1888,8 +2149,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm12-c2',
-      chapterNumber: 'Capítulo 12.2',
+      id: 'm16-c2',
+      chapterNumber: 'Capítulo 16.2',
       title: 'Sincronización Determinista: Mutex con Herencia de Prioridad frente a Semáforos Binarios',
       subtitle: 'El análisis formal del protocolo PIP y la prevención de bloqueos mutuos (Deadlock)',
       paragraphs: [
@@ -1938,12 +2199,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 13: BUSES INDUSTRIALES (CAN / SPACEWIRE / 1553) Y CRC HARDWARE
+  // MÓDULO 17
   // =========================================================================
-  13: [
+  17: [
     {
-      id: 'm13-c1',
-      chapterNumber: 'Capítulo 13.1',
+      id: 'm17-c1',
+      chapterNumber: 'Capítulo 17.1',
       title: 'El Bus CAN y la Señalización Diferencial: Arbitraje Bit a Bit sin Colisión Destructiva',
       subtitle: 'Comportamiento electromagnético de CAN_H y CAN_L y diseño de filtros de aceptación hardware',
       paragraphs: [
@@ -1992,8 +2253,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm13-c2',
-      chapterNumber: 'Capítulo 13.2',
+      id: 'm17-c2',
+      chapterNumber: 'Capítulo 17.2',
       title: 'Matemática del Algoritmo CRC y su Implementación por Tabla vs Periférico Hardware',
       subtitle: 'División polinómica en GF(2), polinomios generadores estándar y optimización a nivel de instrucción',
       paragraphs: [
@@ -2042,12 +2303,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 14: ARITMÉTICA DE PUNTO FIJO (Q15/Q31) Y CONTROL PID DISCRETO
+  // MÓDULO 18
   // =========================================================================
-  14: [
+  18: [
     {
-      id: 'm14-c1',
-      chapterNumber: 'Capítulo 14.1',
+      id: 'm18-c1',
+      chapterNumber: 'Capítulo 18.1',
       title: 'Representación en Punto Fijo (Formatos Q15 y Q31): Determinismo Numérico sin FPU',
       subtitle: 'Escalado binario, prevención de desbordamientos con acumuladores de 32/64 bits y saturación',
       paragraphs: [
@@ -2099,8 +2360,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm14-c2',
-      chapterNumber: 'Capítulo 14.2',
+      id: 'm18-c2',
+      chapterNumber: 'Capítulo 18.2',
       title: 'Diseño e Implementación de un Regulador PID Discreto con Clamping Anti-Windup',
       subtitle: 'Ecuación en diferencias, discretización por aproximación trapezoidal y prevención de saturación de actuadores',
       paragraphs: [
@@ -2150,12 +2411,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 15: DEPURACIÓN HARDWARE Y ANÁLISIS FORENSE DE HARDFAULT
+  // MÓDULO 19
   // =========================================================================
-  15: [
+  19: [
     {
-      id: 'm15-c1',
-      chapterNumber: 'Capítulo 15.1',
+      id: 'm19-c1',
+      chapterNumber: 'Capítulo 19.1',
       title: 'Análisis Forense de Excepciones de la CPU: Decodificación del Registro SCB->CFSR',
       subtitle: 'Cómo diagnosticar la causa exacta de un HardFault en ARM Cortex-M sin depender de una sonda JTAG',
       paragraphs: [
@@ -2204,8 +2465,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm15-c2',
-      chapterNumber: 'Capítulo 15.2',
+      id: 'm19-c2',
+      chapterNumber: 'Capítulo 19.2',
       title: 'Mecanismos de Depuración Hardware: SWD, JTAG y Registro de Trazas CoreSight DWT',
       subtitle: 'Puntos de interrupción por hardware (FPB), Watchpoints de datos y medición de ciclos de reloj sin instrumentación',
       paragraphs: [
@@ -2254,12 +2515,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 16: ULTRA-BAJO CONSUMO Y GESTIÓN ENERGÉTICA CON BATERÍAS
+  // MÓDULO 20
   // =========================================================================
-  16: [
+  20: [
     {
-      id: 'm16-c1',
-      chapterNumber: 'Capítulo 16.1',
+      id: 'm20-c1',
+      chapterNumber: 'Capítulo 20.1',
       title: 'Física del Consumo en Silicio CMOS: Potencia Dinámica frente a Corrientes de Fuga',
       subtitle: 'La ley P = C·V²·f, dominios de retención de SRAM y el cálculo del perfil energético medio',
       paragraphs: [
@@ -2313,8 +2574,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm16-c2',
-      chapterNumber: 'Capítulo 16.2',
+      id: 'm20-c2',
+      chapterNumber: 'Capítulo 20.2',
       title: 'Estrategias de Firmware para Reducción de Consumo: WFI, WFE y Filosofía Event-Driven',
       subtitle: 'Diferencias entre Wait For Interrupt y Wait For Event, Sleep-on-Exit y arquitectura sin polling',
       paragraphs: [
@@ -2363,12 +2624,12 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
   ],
 
   // =========================================================================
-  // MÓDULO 17: SEGURIDAD HARDWARE (MPU, SECURE BOOT, SHA-256 Y TRNG)
+  // MÓDULO 21
   // =========================================================================
-  17: [
+  21: [
     {
-      id: 'm17-c1',
-      chapterNumber: 'Capítulo 17.1',
+      id: 'm21-c1',
+      chapterNumber: 'Capítulo 21.1',
       title: 'Aislamiento de Memoria por Hardware con la MPU: Particionado Espacial y Bit Execute-Never (XN)',
       subtitle: 'Configuración de regiones de protección, modos Privilegiado vs No-Privilegiado y prevención de ataques de inyección de código',
       paragraphs: [
@@ -2417,8 +2678,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       ]
     },
     {
-      id: 'm17-c2',
-      chapterNumber: 'Capítulo 17.2',
+      id: 'm21-c2',
+      chapterNumber: 'Capítulo 21.2',
       title: 'Arranque Seguro (Secure Boot), Generación de Entropía TRNG y Criptografía de Tiempo Constante',
       subtitle: 'Cadena de confianza (Chain of Trust), firmas ECDSA/SHA-256 y mitigación de ataques de canal lateral',
       paragraphs: [
@@ -2464,5 +2725,6 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
         }
       ]
     }
-  ]
+  ],
+
 };

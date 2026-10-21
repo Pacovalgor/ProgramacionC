@@ -1,6 +1,6 @@
 # ProgramacionC — Reglas y Contexto del Proyecto
 
-Este repositorio contiene **ProgramacionC**, una plataforma interactiva y libro de texto técnico en español para aprender **Programación en C Embebido, Arquitectura de Microcontroladores y Normativa Aeroespacial/Defensa (ECSS / NASA / DO-178C / MISRA-C)** desde cero (`Módulo 0`) hasta nivel Senior (`Módulo 11`).
+Este repositorio contiene **ProgramacionC**, una plataforma interactiva y libro de texto técnico en español para aprender **Programación en C Embebido, Arquitectura de Microcontroladores y Normativa Aeroespacial/Defensa (ECSS / NASA / DO-178C / MISRA-C)** desde cero (`Módulo 0`) hasta nivel Senior (`Módulo 21`).
 
 ## Reglas Estrictas de Diseño y Comportamiento para el Agente
 
@@ -24,9 +24,9 @@ Este repositorio contiene **ProgramacionC**, una plataforma interactiva y libro 
 ## Mapa de Archivos de la Arquitectura
 
 - `src/data/mcusData.ts`: Especificaciones técnicas, mapa de pines, mapa de memoria y registros reales de los 5 microcontroladores (**ATmega328P**, **STM32F401RE**, **ESP32-C3**, **nRF52840** y **RP2040**).
-- `src/data/curriculumData.ts`: Los **12 Módulos del Curso (`Módulo 0` a `Módulo 11`)**, con el puente pedagógico (Mito superficial vs Datasheet vs Puente real), código en 3 niveles para los 5 MCUs y reto principal.
-- `src/data/deepTheoryData.ts`: **26 Capítulos de Teoría Profunda** estilo libro de texto de ingeniería (`DEEP_THEORY_BY_MODULE`), con párrafos detallados, fórmulas destacadas (`formulas`), tablas de referencia (`table`), casos prácticos resueltos paso a paso (`workedExample`) y errores críticos de producción (`pitfalls`).
-- `src/data/notebookAndExercisesData.ts`: Diccionario de definiciones con realidad en silicio (`definitions`), reglas de oro y referencias normativas ECSS/NASA (`goldenRules`), guía de dibujo de esquemas (`sketchDiagramSteps`), código canónico comentado (`annotatedCodeToCopy`), **36 retos prácticos de programación C** en 3 niveles por módulo (`codingChallenges`) y **55 preguntas de autoevaluación** (`extraQuizzes`).
+- `src/data/curriculumData.ts`: Los **22 Módulos del Curso (`Módulo 0` a `Módulo 21`)**, con el puente pedagógico (Mito superficial vs Datasheet vs Puente real), código en 3 niveles para los 5 MCUs y reto principal.
+- `src/data/deepTheoryData.ts`: **52 Capítulos de Teoría Profunda** estilo libro de texto de ingeniería (`DEEP_THEORY_BY_MODULE`), con párrafos detallados, fórmulas destacadas (`formulas`), tablas de referencia (`table`), casos prácticos resueltos paso a paso (`workedExample`) y errores críticos de producción (`pitfalls`).
+- `src/data/notebookAndExercisesData.ts`: Diccionario de definiciones con realidad en silicio (`definitions`), reglas de oro y referencias normativas ECSS/NASA (`goldenRules`), guía de dibujo de esquemas (`sketchDiagramSteps`), código canónico comentado (`annotatedCodeToCopy`), **66 retos prácticos de programación C** en 3 niveles por módulo (`codingChallenges`) y **66 preguntas de autoevaluación** (`extraQuizzes`).
 - `src/components/InteractiveLabs.tsx`: Motor evaluador determinista de expresiones C (`evaluateEmbeddedCCode`) y las **10 Estaciones de Laboratorio Interactivo (`Lab 0` a `Lab 9`)**:
   - `Lab 0` (`c-memory-pointers`): Base C — Variables, Punteros (`&` / `*`), Endianness, Padding y Structs (`->`).
   - `Lab 1` (`gpio-xray`): Pinout & Rayos X — Transistores MOSFET P/N, Push-Pull vs Open-Drain, Ley de Ohm, Rebotes y RCC.
