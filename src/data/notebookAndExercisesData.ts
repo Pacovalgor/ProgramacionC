@@ -452,7 +452,7 @@ void ejemplo_completo(void) {
   // =========================================================================
   1: {
     moduleId: 1,
-    notebookSummaryTitle: 'Apuntes Módulo 1: Aritmética de Bits, Máscaras y Punteros a Registros (MMIO)',
+    notebookSummaryTitle: 'Apuntes Módulo 1: Manipulación de Bits y Registros de Hardware (MMIO)',
     whyWriteThisDown:
       'Escribir a mano la tabla de verdad de AND (&), OR (|), XOR (^) y NOT (~) junto con la anatomía del puntero *(volatile uint32_t *) fija para siempre la base de todo el curso.',
     definitions: [

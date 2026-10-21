@@ -379,8 +379,8 @@ typedef struct {
   {
     id: 1,
     slug: 'c-para-hardware-bits-y-punteros',
-    title: 'Módulo 1: C para Hardware — El Eslabón Perdido',
-    subtitle: 'Tipos de ancho fijo (stdint.h), Gimnasio de Bits, Máscaras y cómo un número hexadecimal se convierte en un puntero al silicio',
+    title: 'Módulo 1: Manipulación de Bits y Registros de Hardware',
+    subtitle: 'Gimnasio de Bits, Desplazamiento Lógico vs Aritmético (>>), Máscaras Multi-Bit, Macros MISRA-C y Punteros MMIO',
     level: 'Fundamentos',
     duration: '45 min',
     recommendedLab: 'register-gym',
