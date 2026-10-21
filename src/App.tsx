@@ -4,7 +4,7 @@
  *
  * Responsabilidades arquitectónicas:
  * 1. Gestión del estado global del microcontrolador activo (`selectedMcuId` entre los 5 chips reales).
- * 2. Navegación entre los 12 Módulos del curso (`Módulo 0` a `Módulo 11`) y sincronización automática
+ * 2. Navegación entre los 18 Módulos del curso (`Módulo 0` a `Módulo 17`) y sincronización automática
  *    con la estación de laboratorio recomendada (`activeLab`).
  * 3. Persistencia local en `localStorage` del progreso de módulos superados (`programacion_c_completed_modules`).
  * 4. Coordinación del motor de retos de programación C en 3 niveles por módulo mediante `evaluateEmbeddedCCode`.
@@ -420,12 +420,12 @@ export function App() {
           MAIN BODY: LEFT CURRICULUM SIDEBAR + RIGHT INTERACTIVE WORKSPACE
          =================================================================== */}
       <div className="max-w-[1600px] w-full mx-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-4 sm:p-6">
-        {/* LEFT COLUMN: 12-MODULE COURSE CURRICULUM & MCU SUMMARY CARD */}
+        {/* LEFT COLUMN: 18-MODULE COURSE CURRICULUM & MCU SUMMARY CARD */}
         <aside className="lg:col-span-3 space-y-5">
           <div className="retro-window overflow-hidden">
             <div className="retro-titlebar px-3 py-1.5 flex items-center justify-between text-[11px] font-pixel text-cyan-300">
               <span>╔═ [ TEMARIO_ROM.DIR ]</span>
-              <span className="text-emerald-400">[00..11]</span>
+              <span className="text-emerald-400">[00..17]</span>
             </div>
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
@@ -437,8 +437,8 @@ export function App() {
                 </span>
               </div>
 
-              {/* Barra de Progreso Pixel-Art de 12 Segmentos LED (1 bloque por módulo) */}
-              <div className="grid grid-cols-12 gap-1 bg-black p-1.5 border-2 border-slate-800">
+              {/* Barra de Progreso Pixel-Art de 18 Segmentos LED (1 bloque por módulo) */}
+              <div className="flex gap-1 bg-black p-1.5 border-2 border-slate-800">
                 {COURSE_MODULES.map((m) => {
                   const done = completedModules.includes(m.id);
                   const active = m.id === activeModuleId;
@@ -446,7 +446,7 @@ export function App() {
                     <div
                       key={m.id}
                       title={`Módulo ${m.id}: ${done ? 'Completado' : active ? 'En curso' : 'Pendiente'}`}
-                      className={`h-3 border ${
+                      className={`flex-1 h-3 border ${
                         done
                           ? 'bg-emerald-400 border-emerald-200'
                           : active

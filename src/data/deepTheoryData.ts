@@ -1412,5 +1412,637 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
         }
       ]
     }
+  ],
+
+  // =========================================================================
+  // MÓDULO 12: RTOS A NIVEL DE SILICIO (FREERTOS / ZEPHYR / RTEMS)
+  // =========================================================================
+  12: [
+    {
+      id: 'm12-c1',
+      chapterNumber: 'Capítulo 12.1',
+      title: 'Anatomía del Cambio de Contexto en Silicio: De SysTick y PendSV al TCB',
+      subtitle: 'Cómo un microcontrolador mononúcleo conmuta tareas apilando y desapilando registros en SRAM',
+      paragraphs: [
+        'En un microcontrolador de un solo núcleo no existe ejecución simultánea real de código: la ilusión de multitarea se logra alternando rápidamente la ejecución entre distintas funciones mediante un Cambio de Contexto (Context Switch). Para que una tarea pueda reanudarse exactamente donde se quedó, debe preservarse todo el estado interno de la CPU: el Program Counter (PC), el Stack Pointer (SP), el registro de estado (xPSR), el Link Register (LR) y los registros generales (R0 a R12).',
+        'En la arquitectura ARM Cortex-M, el procesador cuenta con dos punteros de pila físicos independientes: el Main Stack Pointer (MSP) y el Process Stack Pointer (PSP). El núcleo arranca utilizando MSP para el código de inicialización y las rutinas de interrupción (ISRs). Al iniciar el planificador del RTOS, cada tarea de usuario pasa a utilizar su propio PSP asignado dentro de su Bloque de Control de Tarea (TCB).',
+        'Cuando se produce un cambio de contexto (por ejemplo, porque el temporizador periódico SysTick expira o una tarea invoca vTaskDelay), no se conmuta inmediatamente dentro de SysTick para evitar retrasar otras interrupciones de mayor prioridad. En su lugar, se solicita la excepción PendSV (Pended Servicing), configurada con la menor prioridad posible del NVIC. Cuando todas las demás ISRs terminan, PendSV se ejecuta, salva R4-R11 en la pila de la tarea saliente, actualiza pxTopOfStack en su TCB, apunta PSP al TCB de la nueva tarea, recupera sus registros y retorna en modo hilo.'
+      ],
+      formulas: [
+        {
+          name: 'Tamaño Mínimo del Marco de Excepción en Pila (ARM Cortex-M sin FPU)',
+          expression: 'Stack_Frame = 16 words = 64 bytes (R0-R3, R12, LR, PC, xPSR [HW] + R4-R11 [SW])',
+          explanation: 'Cada cambio de contexto consume al menos 64 bytes de la pila privada de la tarea únicamente para almacenar los registros de la CPU. Si la FPU está activa (Lazy Stacking), se añaden 136 bytes adicionales (S0-S31 + FPSCR).'
+        }
+      ],
+      table: {
+        headers: ['Elemento del RTOS', 'Ubicación en Memoria', 'Responsable de Guardar', 'Función Crítica'],
+        rows: [
+          ['Hardware Stack Frame', 'Pila de la tarea (PSP)', 'Silicio / CPU en 12 ciclos', 'Salva R0-R3, R12, LR, PC y xPSR al dispararse la interrupción'],
+          ['Software Stack Frame', 'Pila de la tarea (PSP)', 'Código ASM de PendSV', 'Salva R4 a R11 mediante instrucción STMDB'],
+          ['pxTopOfStack', 'Primer miembro de struct TCB', 'PendSV_Handler', 'Puntero en SRAM que indica dónde terminó de llenarse la pila de esa tarea'],
+          ['PendSV Exception', 'Vector 14 del NVIC', 'Core ARM Cortex-M', 'Garantiza que el cambio de contexto ocurra cuando no queden ISRs activas']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Cálculo de Huella de Memoria de una Tarea Estática',
+        problemStatement:
+          'Deseas crear una tarea periódica de lectura de telemetría sin asignación dinámica. La tarea usa 80 bytes de variables locales en sus funciones y su cadena de llamadas anidadas alcanza 3 niveles. Calcula el tamaño mínimo del array StackType_t para evitar Stack Overflow con un margen de seguridad del 40%.',
+        steps: [
+          '1. Marco base de excepción de la CPU: 64 bytes (16 registros de 32 bits).',
+          '2. Variables locales y llamadas anidadas (3 niveles de LR apilado): 80 bytes + (3 * 4 bytes) = 92 bytes.',
+          '3. Espacio neto consumido en el peor caso: 64 + 92 = 156 bytes.',
+          '4. Margen del 40%: 156 * 1.40 = 218.4 bytes. Redondeando al múltiplo de 8 bytes superior: 224 bytes (56 palabras de 32 bits).',
+          '5. Declaramos: static StackType_t s_telemetry_stack[56]; y su StaticTask_t correspondiente.'
+        ],
+        codeOrMath: `// Reserva estática garantizada en tiempo de compilación (.bss):\n#define TLM_STACK_WORDS 56U\nstatic StackType_t  s_tlm_stack[TLM_STACK_WORDS];\nstatic StaticTask_t s_tlm_tcb;\nTaskHandle_t h = xTaskCreateStatic(vTlmTask, "TLM", TLM_STACK_WORDS, NULL, 2U, s_tlm_stack, &s_tlm_tcb);`,
+        conclusion: 'La reserva estática de tareas elimina al 100% el riesgo de fragmentación del Heap y garantiza determinismo formal exigido por DO-178C y ECSS.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Llamar a APIs bloqueantes del RTOS (como xQueueReceive o vTaskDelay) dentro de una rutina de interrupción (ISR)',
+          whyItFails:
+            'Las interrupciones se ejecutan en modo Handler usando el Main Stack Pointer (MSP). Si una ISR se bloqueara esperando un recurso, congelaría todo el sistema e infringiría el diseño de prioridades de la CPU.',
+          seniorFix: 'Dentro de ISRs utiliza exclusivamente las funciones terminadas en FromISR (ej. xQueueSendFromISR) comprobando la bandera pxHigherPriorityTaskWoken.'
+        }
+      ]
+    },
+    {
+      id: 'm12-c2',
+      chapterNumber: 'Capítulo 12.2',
+      title: 'Sincronización Determinista: Mutex con Herencia de Prioridad frente a Semáforos Binarios',
+      subtitle: 'El análisis formal del protocolo PIP y la prevención de bloqueos mutuos (Deadlock)',
+      paragraphs: [
+        'Uno de los errores conceptuales más frecuentes en sistemas embebidos es considerar que un Semáforo Binario y un Mutex son equivalentes porque ambos toman valores lógicos de 0 o 1. En la arquitectura de un RTOS tienen propósitos radicalmente opuestos: los semáforos se diseñan para sincronización o señalización entre tareas e ISRs, mientras que los Mutex se diseñan para exclusión mutua sobre recursos compartidos.',
+        'Un Mutex tiene el concepto formal de propiedad (Ownership): la única entidad que puede liberar un Mutex es la tarea que lo adquirió previamente. Esto permite al planificador implementar el Protocolo de Herencia de Prioridad (Priority Inheritance Protocol).',
+        'Cuando una tarea de baja prioridad adquiere un recurso protegido por un Mutex y una tarea de alta prioridad lo solicita, el RTOS eleva temporalmente la prioridad de la tarea de baja prioridad al nivel de la tarea bloqueada. Esto evita que tareas de prioridad intermedia interrumpan a la tarea baja y provoquen una inversión de prioridad no acotada.'
+      ],
+      formulas: [
+        {
+          name: 'Tiempo Máximo de Bloqueo con Herencia de Prioridad (B_i)',
+          expression: 'B_i <= max(CS_k)  para toda tarea k de menor prioridad que comparte recursos con i',
+          explanation: 'Con herencia de prioridad, una tarea de alta prioridad se bloquea a lo sumo durante la sección crítica más larga de una sola tarea de menor prioridad.'
+        }
+      ],
+      table: {
+        headers: ['Característica', 'Semáforo Binario', 'Mutex Clásico', 'Mutex con Priority Inheritance'],
+        rows: [
+          ['Objetivo Principal', 'Señalización (evento ocurrido)', 'Exclusión mutua simple', 'Protección de periféricos / variables críticas'],
+          ['Concepto de Dueño', 'No (cualquiera puede hacer Give)', 'Sí (solo quien tomó puede dar)', 'Sí (con verificación estricta de Ownership)'],
+          ['Uso dentro de ISR', 'Permitido (xSemaphoreGiveFromISR)', 'Prohibido', 'Prohibido'],
+          ['Comportamiento ante Inversión', 'Vulnerable a retrasos no acotados', 'Vulnerable', 'Inversión de prioridad acotada a una sección crítica']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Protección de un Bus I2C Compartido entre Dos Tareas',
+        problemStatement:
+          'Una tarea de control a 100 Hz y una tarea de registro a 5 Hz comparten el mismo bus I2C. Escribe el patrón de adquisición seguro con timeout finito para evitar bloqueos permanentes.',
+        steps: [
+          '1. Crear el Mutex estático durante la inicialización del subsistema.',
+          '2. Definir un tiempo máximo de espera razonable (ej. 10 ms = 10 ticks a 1 kHz) en lugar de portMAX_DELAY.',
+          '3. Si la adquisición tiene éxito, realizar la transferencia y liberar inmediatamente.',
+          '4. Si expira el timeout, registrar un error en telemetría y abortar sin tocar el periférico.'
+        ],
+        codeOrMath: `SemaphoreHandle_t i2c_mutex = xSemaphoreCreateMutexStatic(&s_mutex_buffer);\nif (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(10U)) == pdTRUE) {\n    i2c_read_bytes(0x68U, data, 6U);\n    xSemaphoreGive(i2c_mutex);\n} else {\n    g_i2c_timeouts++;\n}`,
+        conclusion: 'El uso de timeouts finitos en la adquisición de Mutex es un requisito de seguridad MISRA-C y DO-178C para evitar interbloqueos silenciosos.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Bloquear dos tareas entre sí adquiriendo dos Mutex en orden inverso (Deadlock o abrazo mortal)',
+          whyItFails:
+            'Si la Tarea 1 toma el Mutex A y espera el B, mientras la Tarea 2 toma el Mutex B y espera el A, ambas quedarán congeladas indefinidamente.',
+          seniorFix: 'Establece una jerarquía de bloqueo global estricta: los recursos compartidos deben adquirirse siempre exactamente en el mismo orden en todo el código.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 13: BUSES INDUSTRIALES (CAN / SPACEWIRE / 1553) Y CRC HARDWARE
+  // =========================================================================
+  13: [
+    {
+      id: 'm13-c1',
+      chapterNumber: 'Capítulo 13.1',
+      title: 'El Bus CAN y la Señalización Diferencial: Arbitraje Bit a Bit sin Colisión Destructiva',
+      subtitle: 'Comportamiento electromagnético de CAN_H y CAN_L y diseño de filtros de aceptación hardware',
+      paragraphs: [
+        'En entornos industriales, automotrices y aeroespaciales, los enlaces serie convencionales de línea única (como UART o I2C) fallan con facilidad debido a transitorios inductivos, bucles de masa y radiación electromagnética producida por motores o actuadores. El bus CAN (Controller Area Network, ISO 11898) resuelve este problema combinando una línea de transmisión diferencial con un protocolo de capa de enlace altamente determinista.',
+        'La capa física de CAN utiliza dos líneas trenzadas: CAN_High y CAN_Low, terminadas en ambos extremos con resistencias de 120 ohmios. En estado recesivo (bit 1 lógico), ambas líneas se encuentran al mismo potencial de 2.5 V (diferencia de 0 V). En estado dominante (bit 0 lógico), CAN_H sube a 3.5 V y CAN_L baja a 1.5 V (diferencia de 2.0 V). Dado que el receptor solo mide la diferencia de tensión, cualquier ruido de modo común que afecte a ambos cables por igual se cancela por completo.',
+        'El arbitraje de bus se basa en la naturaleza dominante del bit 0. Todos los nodos sincronizan sus relojes en el Start of Frame y transmiten su identificador (11 o 29 bits). Cada nodo monitoriza el cable mientras transmite: si un nodo emite un bit recesivo (1) pero detecta un bit dominante (0), sabe que otro nodo con mayor prioridad está emitiendo, por lo que pasa a modo receptor sin interrumpir la trama ganadora.'
+      ],
+      formulas: [
+        {
+          name: 'Tensión Diferencial del Bus CAN',
+          expression: 'V_diff = V_CANH - V_CANL   (Recesivo: ~0.0V | Dominante: ~2.0V)',
+          explanation: 'La inmunidad al ruido proviene de que cualquier interferencia externa incrementa V_CANH y V_CANL simultáneamente, manteniendo V_diff inalterado.'
+        }
+      ],
+      table: {
+        headers: ['Campo de Trama CAN 2.0A', 'Longitud en Bits', 'Propósito Físico', 'Impacto en Determinismo'],
+        rows: [
+          ['SOF (Start of Frame)', '1 bit dominante', 'Sincronización dura de todos los transceptores del bus', 'Fija el inicio de la ranura temporal'],
+          ['Arbitration Field (ID + RTR)', '12 bits (11b ID + RTR)', 'Establece prioridad de acceso y tipo de trama (Data o Remote)', 'Menor ID = mayor prioridad garantizada'],
+          ['Control Field (IDE, r0, DLC)', '6 bits', 'Indica formato estándar/extendido y longitud de datos (0..8)', 'Determina cuántos bytes viajan en el payload'],
+          ['Data Field', '0 a 64 bits (0 a 8 bytes)', 'Carga útil con telemetría o comandos', 'Longitud determinista y conocida'],
+          ['CRC Field', '15 bits + 1 bit Delimiter', 'Polinomio generador x^15 + x^14 + x^10 + x^8 + x^7 + x^4 + x^3 + 1', 'Detección de hasta 5 bits aleatorios o ráfagas de 15 bits']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Configuración de un Filtro de Aceptación CAN con Máscara',
+        problemStatement:
+          'Deseas que tu nodo STM32 procese únicamente las tramas con identificadores 0x320 a 0x327 (sensores de temperatura de la batería). Calcula el Filter ID y la Filter Mask de 11 bits necesarios para programar el banco de filtros en hardware.',
+        steps: [
+          '1. Desglosar el rango en binario: 0x320 = 0b011 0010 0000; 0x327 = 0b011 0010 0111.',
+          '2. Identificar los bits comunes: los 8 bits superiores (bits 10..3) son siempre 0b01100100 (0x320). Los 3 bits inferiores (bits 2..0) varían libremente de 0 a 7.',
+          '3. Definir la máscara: bits fijos en 1, bits variables en 0 -> Mask = 0b111 1111 1000 = 0x7F8.',
+          '4. Definir el ID del filtro: ID = 0x320.',
+          '5. Comprobación: (ID_recibido & 0x7F8) == 0x320 aceptará exclusivamente 0x320..0x327 y rechazará todas las demás tramas sin despertar a la CPU.'
+        ],
+        codeOrMath: `// Configuración de filtro CAN en hardware:\nCAN_FilterTypeDef sFilter;\nsFilter.FilterIdHigh         = (0x320U << 5);\nsFilter.FilterMaskIdHigh     = (0x7F8U << 5);\nsFilter.FilterMode           = CAN_FILTERMODE_IDMASK;\nsFilter.FilterScale          = CAN_FILTERSCALE_32BIT;`,
+        conclusion: 'El filtrado hardware selectivo reduce la carga de interrupciones de la CPU a prácticamente cero en redes con cientos de tramas por segundo.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Conectar un microcontrolador directamente a los cables CAN_H y CAN_L sin transceptor diferencial físico (ej. TJA1051)',
+          whyItFails:
+            'Los pines del microcontrolador (TX/RX) son niveles lógicos CMOS digitales (0 a 3.3V). La línea física CAN requiere etapas de transistores simétricos y resistencias para operar en modo diferencial.',
+          seniorFix: 'Intercala siempre un transceptor de línea certificado (SN65HVD230 para 3.3V o TJA1050 para 5V) y coloca terminadores de 120 ohmios en los extremos del bus.'
+        }
+      ]
+    },
+    {
+      id: 'm13-c2',
+      chapterNumber: 'Capítulo 13.2',
+      title: 'Matemática del Algoritmo CRC y su Implementación por Tabla vs Periférico Hardware',
+      subtitle: 'División polinómica en GF(2), polinomios generadores estándar y optimización a nivel de instrucción',
+      paragraphs: [
+        'En canales con ruido industrial, verificar la integridad mediante sumas de verificación simples (checksums aditivos de 8 o 16 bits) es insuficiente: si dos bits se invierten en sentidos opuestos o se permutan bytes adyacentes, el checksum resultante permanece inalterado. La comprobación de redundancia cíclica (CRC) trata el flujo de datos como los coeficientes de un polinomio sobre el cuerpo de Galois GF(2).',
+        'La operación central del CRC es una división polinómica binaria donde la resta se realiza mediante la operación lógica XOR (sin acarreo). El mensaje se desplaza a la izquierda tantos ceros como el grado del polinomio generador G(x) y se divide iterativamente. El residuo final de dicha división es el valor CRC transmitido.',
+        'En microcontroladores modernos, el cálculo de CRC puede realizarse de tres formas: 1) Algoritmo bit a bit en C (mínima memoria Flash, alto coste de CPU: ~8 ciclos por byte); 2) Algoritmo acelerado por tabla de consulta de 256 elementos (rápido: ~2 ciclos por byte, coste de 512 a 1024 bytes de Flash); o 3) Periférico hardware dedicado conectado a los buses internos AHB/DMA, capaz de procesar una palabra de 32 bits por ciclo de reloj sin consumir memoria de programa.'
+      ],
+      formulas: [
+        {
+          name: 'Operación Polinómica Fundamental de CRC',
+          expression: 'M(x) * x^n = Q(x) * G(x) + R(x)    donde R(x) es el residuo CRC de n bits',
+          explanation: 'El emisor transmite [M(x) | R(x)]. El receptor divide todo el paquete por G(x); si no hubo corrupción, el residuo debe ser exactamente 0.'
+        }
+      ],
+      table: {
+        headers: ['Estándar / Protocolo', 'Longitud (Bits)', 'Polinomio Generador Hexadecimal', 'Propósito en la Industria'],
+        rows: [
+          ['CRC-8 SMBus / Maxim', '8 bits', '0x07 (x^8 + x^2 + x + 1)', 'Comprobación de sensores I2C/SPI y memoria 1-Wire'],
+          ['CRC-16 CCITT', '16 bits', '0x1021 (x^16 + x^12 + x^5 + 1)', 'Telecomunicaciones, protocolos X.25, Bluetooth y SpaceWire'],
+          ['CRC-16 Modbus', '16 bits', '0x8005 (Reflejado: 0xA001)', 'Autómatas industriales PLC y buses RS-485'],
+          ['CRC-32 IEEE 802.3', '32 bits', '0x04C11DB7', 'Ethernet, imágenes de firmware en Flash, Bootloaders y tramas aeroespaciales']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Verificación Rápida de Integridad con Acelerador Hardware CRC',
+        problemStatement:
+          'Escribe una función en C que compute el CRC-32 de un bloque de telemetría de 128 bytes utilizando el periférico CRC del STM32 y compare el resultado contra la firma esperada.',
+        steps: [
+          '1. Asegurar que el reloj del periférico CRC esté activo en RCC->AHB1ENR.',
+          '2. Reiniciar el registro de cálculo escribiendo 1 en el bit RESET de CRC->CR.',
+          '3. Tratar el buffer como un array de palabras uint32_t (128 bytes = 32 palabras de 32 bits).',
+          '4. Escribir secuencialmente en CRC->DR y leer el resultado final.'
+        ],
+        codeOrMath: `bool verify_buffer_crc32(const uint32_t *data, uint32_t words_count, uint32_t expected_crc) {\n    CRC->CR = CRC_CR_RESET;\n    for (uint32_t i = 0U; i < words_count; i++) {\n        CRC->DR = data[i];\n    }\n    return (CRC->DR == expected_crc);\n}`,
+        conclusion: 'El uso del periférico hardware calcula el CRC de 128 bytes en menos de 40 ciclos de reloj, eliminando la sobrecarga computacional del microcontrolador.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Mezclar implementaciones de CRC con diferente convención de reflexión de bits (MSB-first vs LSB-first)',
+          whyItFails:
+            'Dos funciones que usan el mismo polinomio matemático darán valores distintos si una refleja los bits de entrada/salida y la otra no, provocando rechazo de paquetes legítimos.',
+          seniorFix: 'Verifica siempre en el estándar 4 parámetros: Polinomio, Valor Inicial (Seed), Reflexión In/Out y XOR final.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 14: ARITMÉTICA DE PUNTO FIJO (Q15/Q31) Y CONTROL PID DISCRETO
+  // =========================================================================
+  14: [
+    {
+      id: 'm14-c1',
+      chapterNumber: 'Capítulo 14.1',
+      title: 'Representación en Punto Fijo (Formatos Q15 y Q31): Determinismo Numérico sin FPU',
+      subtitle: 'Escalado binario, prevención de desbordamientos con acumuladores de 32/64 bits y saturación',
+      paragraphs: [
+        'En sistemas embebidos de control rápido y bajo coste (como accionamientos de motores, filtros digitales o acondicionamiento de señales de sensores), utilizar tipos en coma flotante (float o double) presenta serios inconvenientes. En microcontroladores sin unidad de coma flotante por hardware (FPU), el compilador sustituye cada operación float por complejas rutinas de software emulado que consumen cientos de ciclos. Además, el estándar IEEE 754 introduce estados no deterministas como NaN (Not a Number), subnormales e infinitos, explícitamente vetados en normas críticas como MISRA-C y NASA JPL.',
+        'La solución industrial es la Aritmética de Punto Fijo (Fixed-Point). En lugar de almacenar el exponente en tiempo de ejecución, el programador fija la posición del punto decimal implícito en potencias de 2. La notación estándar Qm.n define un número donde 1 bit representa el signo, m bits representan la parte entera y n bits representan la parte fraccionaria.',
+        'El formato más extendido en procesamiento digital de señales de 16 bits es Q15 (o Q0.15): almacena valores en el rango [-1.0, +0.999969] con un factor de escala de 2^15 = 32768. Para multiplicar dos números Q15 se multiplican como enteros con signo obteniendo un resultado temporal de 32 bits (formato Q30), y se desplaza el resultado 15 posiciones a la derecha para restaurar la escala original.'
+      ],
+      formulas: [
+        {
+          name: 'Conversión entre Real (Float) y Formato Q15',
+          expression: 'Valor_Q15 = round(Valor_Real * 32768.0)    donde -1.0 <= Valor_Real < +1.0',
+          explanation: 'La resolución de un entero Q15 es 1 / 32768 = 30.517 microvoltios o unidades fraccionarias por cada bit de peso mínimo (LSB).'
+        },
+        {
+          name: 'Multiplicación de Dos Números en Formato Q15',
+          expression: 'Resultado_Q15 = (q15_t)(((int32_t)A * (int32_t)B) >> 15)',
+          explanation: 'La extensión a int32_t evita el desbordamiento durante la multiplicación intermedia de 16x16 bits.'
+        }
+      ],
+      table: {
+        headers: ['Formato', 'Tipo Base C', 'Rango Fraccionario', 'Resolución por LSB', 'Uso Principal'],
+        rows: [
+          ['Q15 (Q1.15)', 'int16_t', '-1.0 a +0.999969', '1 / 32768 (~0.0000305)', 'Filtros de audio, acelerómetros, CMSIS-DSP arm_pid_q15'],
+          ['Q31 (Q1.31)', 'int32_t', '-1.0 a +0.9999999995', '1 / 2^31 (~4.65e-10)', 'Control de servomotores de alta precisión, lazos espaciales'],
+          ['Q8.8', 'int16_t', '-128.0 a +127.996', '1 / 256 (~0.0039)', 'Termómetros industriales, lecturas de tensión de batería'],
+          ['Q16.16', 'int32_t', '-32768.0 a +32767.99998', '1 / 65536 (~0.000015)', 'Posicionamiento y odometría en robótica móvil']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Multiplicación de Coeficientes de Filtro en Q15',
+        problemStatement:
+          'Deseas atenuar una muestra de sensor aplicando una ganancia de 0.75 sobre una lectura fraccionaria de 0.60. Realiza el cálculo en punto fijo Q15 usando operaciones enteras.',
+        steps: [
+          '1. Convertir coeficientes a Q15: A = round(0.75 * 32768) = 24576; B = round(0.60 * 32768) = 19661.',
+          '2. Multiplicar en 32 bits: 24576 * 19661 = 483188736 (en escala Q30).',
+          '3. Desplazar 15 bits a la derecha: 483188736 >> 15 = 14745.',
+          '4. Verificación decimal: 14745 / 32768.0 = 0.44998 (el valor teórico exacto es 0.75 * 0.60 = 0.45000; error inferior al 0.005%).'
+        ],
+        codeOrMath: `q15_t a = 24576; // 0.75\nq15_t b = 19661; // 0.60\nq15_t res = (q15_t)(((int32_t)a * (int32_t)b) >> 15); // res = 14745 (0.45)`,
+        conclusion: 'El cálculo se resuelve en 1 ciclo de CPU en procesadores con multiplicador de hardware sin recurrir a la librería libm.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Multiplicar dos int16_t sin hacer el cast a int32_t previo: (int16_t)((a * b) >> 15)',
+          whyItFails:
+            'En C, si la multiplicación desborda antes de la promoción de tipos, el comportamiento es indefinido o produce truncamiento de 16 bits provocando resultados caóticos.',
+          seniorFix: 'Promociona siempre al tipo del doble de anchura antes de la operación: (int32_t)a * (int32_t)b.'
+        }
+      ]
+    },
+    {
+      id: 'm14-c2',
+      chapterNumber: 'Capítulo 14.2',
+      title: 'Diseño e Implementación de un Regulador PID Discreto con Clamping Anti-Windup',
+      subtitle: 'Ecuación en diferencias, discretización por aproximación trapezoidal y prevención de saturación de actuadores',
+      paragraphs: [
+        'En automatización industrial y robótica, más del 90% de los lazos de control de velocidad, posición, presión o temperatura utilizan un regulador Proporcional-Integral-Derivativo (PID). La ley continua del PID es u(t) = Kp * e(t) + Ki * integral(e(tau) dtau) + Kd * de(t)/dt. Para implementarla en un microcontrolador, debemos discretizar la ecuación asumiendo un periodo de muestreo fijo y estrictamente periódico Ts.',
+        'La discretización produce tres términos en cada instante k: el término proporcional P = Kp * e[k]; el término integral I[k] = I[k-1] + Ki * Ts * e[k] (aproximación rectangular hacia atrás); y el término derivativo D[k] = Kd * (e[k] - e[k-1]) / Ts.',
+        'El problema práctico más severo en cualquier lazo real es el "Integral Windup". Los actuadores físicos tienen límites de saturación estrictos (por ejemplo, un PWM no puede superar el 100% de ciclo de trabajo ni bajar del 0%). Si el sistema experimenta un error grande durante varios ciclos (como un motor bloqueado mecánicamente), el término integral sigue acumulando error hasta alcanzar valores gigantescos. Cuando la carga desaparece, el actuador permanece saturado durante segundos hasta que el integrador se vacía. El Clamping Anti-Windup previene esto congelando la suma del integrador tan pronto como la salida del PID alcanza los límites físicos del hardware.'
+      ],
+      formulas: [
+        {
+          name: 'Ecuación en Diferencias del PID Discreto',
+          expression: 'u[k] = Kp * e[k] + I[k] + Kd * (e[k] - e[k-1]) / Ts',
+          explanation: 'Calculada periódicamente dentro de una rutina de interrupción de temporizador con periodo constante Ts.'
+        }
+      ],
+      table: {
+        headers: ['Componente PID', 'Acción Física en el Sistema', 'Riesgo Típico en Embebidos', 'Mitigación de Ingeniería'],
+        rows: [
+          ['Proporcional (P)', 'Reacciona al error instantáneo', 'Ganancia excesiva provoca oscilaciones violentas', 'Ajustar Kp por debajo del límite de estabilidad de Nyquist'],
+          ['Integral (I)', 'Elimina el error en régimen permanente', 'Saturación del acumulador (Integral Windup)', 'Clamping de límites dinámicos y Anti-Windup'],
+          ['Derivativo (D)', 'Anticipa la tendencia y frena oscilaciones', 'Amplifica el ruido de alta frecuencia del ADC', 'Filtro paso-bajo de primer orden sobre la derivada'],
+          ['Salida Saturada (PWM)', 'Aplica la señal física al transistor/motor', 'Comportamiento no lineal del actuador', 'Saturación por software (Clamping) entre 0% y 100%']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Lazo de Control de Temperatura con Anti-Windup',
+        problemStatement:
+          'Implementa la función de actualización de un PID discreto con limitación de actuador entre 0 y 1000 unidades de PWM y protección Anti-Windup.',
+        steps: [
+          '1. Calcular el error actual: error = consigna - lectura_adc.',
+          '2. Calcular término proporcional: p_term = Kp * error.',
+          '3. Calcular término derivativo sobre el cambio de error: d_term = Kd * (error - error_previo).',
+          '4. Integrar con condición de guarda (Anti-Windup Clamping): solo integrar si la salida no está saturada en el mismo sentido del error.',
+          '5. Sumar los tres términos y acotar la salida final entre MIN y MAX.'
+        ],
+        codeOrMath: `int32_t pid_update(int32_t setpoint, int32_t feedback, pid_state_t *pid) {\n    int32_t error = setpoint - feedback;\n    int32_t p_term = pid->kp * error;\n    int32_t d_term = pid->kd * (error - pid->prev_error);\n    pid->integral += (pid->ki * error);\n    if (pid->integral > 1000L) pid->integral = 1000L; // Clamping\n    if (pid->integral < 0L)    pid->integral = 0L;\n    int32_t out = p_term + pid->integral + d_term;\n    if (out > 1000L) out = 1000L;\n    if (out < 0L)    out = 0L;\n    pid->prev_error = error;\n    return out;\n}`,
+        conclusion: 'La arquitectura con clamping protege la planta mecánica de sobreimpulsos destructivos ante perturbaciones de carga escalón.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Ejecutar la función del PID dentro del bucle principal while(1) sin sincronización temporal fija',
+          whyItFails:
+            'Si el tiempo Ts varía entre ciclos porque otras funciones tardan más o menos en ejecutarse, las derivadas e integrales cambian de magnitud de forma espuria haciendo inestable el lazo.',
+          seniorFix: 'Dispara la ejecución del PID exclusivamente desde una interrupción de Timer de alta prioridad o una tarea periódica de RTOS con vTaskDelayUntil.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 15: DEPURACIÓN HARDWARE Y ANÁLISIS FORENSE DE HARDFAULT
+  // =========================================================================
+  15: [
+    {
+      id: 'm15-c1',
+      chapterNumber: 'Capítulo 15.1',
+      title: 'Análisis Forense de Excepciones de la CPU: Decodificación del Registro SCB->CFSR',
+      subtitle: 'Cómo diagnosticar la causa exacta de un HardFault en ARM Cortex-M sin depender de una sonda JTAG',
+      paragraphs: [
+        'En proyectos profesionales de firmware, los fallos más complejos (como accesos desalineados, desreferencia de punteros nulos, corrupción de pila o ejecución de código en memoria no asignada) no ocurren en la mesa de laboratorio con la sonda de depuración conectada, sino en campo tras semanas de funcionamiento ininterrumpido. Cuando la CPU encuentra una condición anómala irrecuperable, interrumpe el flujo normal y salta al vector HardFault_Handler.',
+        'La mayoría de las plantillas de código generadas por entornos de desarrollo definen HardFault_Handler como un bucle infinito while(1). Esto convierte el fallo en un misterio opaco: el chip queda bloqueado o el Watchdog lo reinicia sin dejar rastro.',
+        'Sin embargo, el núcleo ARM Cortex-M dispone del bloque System Control Block (SCB) que registra la causa exacta del fallo en el Configurable Fault Status Register (SCB->CFSR, dirección 0xE000ED28). Este registro de 32 bits contiene banderas independientes para tres subsistemas: MemManage Fault (violaciones de MPU), Bus Fault (errores en el bus al intentar acceder a direcciones inexistentes) y Usage Fault (instrucciones ilegales, división por cero o desalineamientos).'
+      ],
+      formulas: [
+        {
+          name: 'Estructura del Registro SCB->CFSR (0xE000ED28)',
+          expression: 'CFSR[31:16] = UsageFault (UFSR) | CFSR[15:8] = BusFault (BFSR) | CFSR[7:0] = MemManage (MMFSR)',
+          explanation: 'La lectura de este registro único desglosa inmediatamente si el fallo fue de bus, de instrucción o de protección de memoria.'
+        }
+      ],
+      table: {
+        headers: ['Bandera de Fallo', 'Bit en CFSR', 'Significado Físico en Silicio', 'Causa Típica en Código C'],
+        rows: [
+          ['DIVBYZERO', 'Bit 25 (UFSR)', 'Intento de división entre 0 con el trampeo activo en SCB->CCR', 'Cálculo de porcentaje con denominador no validado'],
+          ['UNALIGNED', 'Bit 24 (UFSR)', 'Acceso a memoria no alineado a su tamaño natural', 'Cast forzado de (uint8_t*) a (uint32_t*) sobre un buffer impar'],
+          ['UNDEFINSTR', 'Bit 16 (UFSR)', 'La CPU intentó decodificar un patrón de bits que no es instrucción', 'Puntero de función apuntando a Flash borrada o corrupción de memoria'],
+          ['PRECISERR', 'Bit 9 (BFSR)', 'Fallo de bus en una dirección exacta; SCB->BFAR contiene la dirección', 'Desreferencia de puntero NULL (ej. ptr->field en dirección 0x00000004)'],
+          ['STKERR', 'Bit 4 (MMFSR) / Bit 12 (BFSR)', 'Fallo de bus al apilar el marco de interrupción durante una excepción', 'Pila (Stack) desbordada que colisionó con el límite de la memoria SRAM']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Desensamblado de una Traza Forense de HardFault',
+        problemStatement:
+          'Tu manejador forense en C captura los siguientes registros tras un reinicio en campo: PC = 0x080018C4, CFSR = 0x00008200, BFAR = 0x00000008. Determina qué provocó el error.',
+        steps: [
+          '1. Analizar CFSR = 0x00008200 en binario: el bit 15 (BFARVALID) y el bit 9 (PRECISERR) están en 1.',
+          '2. BFARVALID=1 significa que el registro SCB->BFAR contiene la dirección exacta causante del error.',
+          '3. BFAR = 0x00000008: la CPU intentó leer o escribir en la dirección física 0x00000008.',
+          '4. Diagnóstico: 0x08 es el offset del tercer campo de una estructura de 32 bits (0x00, 0x04, 0x08). Un puntero a estructura inicializado en NULL (0x00000000) fue desreferenciado como ptr->campo3 = x.',
+          '5. Localización en C: ejecutando "addr2line -e firmware.elf 0x080018C4" obtenemos el archivo y la línea exacta de C.'
+        ],
+        codeOrMath: `// Resultado de inspección del fallo:\nCFSR: 0x00008200 -> PRECISERR | BFARVALID\nBFAR: 0x00000008 -> Acceso a NULL + 8 bytes de offset\nPC:   0x080018C4 -> sensor_task.c:87 (sensor_ptr->reading = val;)`,
+        conclusion: 'El diagnóstico forense permite corregir bugs en producción en minutos sin necesidad de reproducir el fallo con instrumental.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Implementar el HardFault_Handler enteramente en C estándar sin prólogo en ensamblador',
+          whyItFails:
+            'Una función en C modifica los registros R0-R3 y el puntero de pila SP nada más entrar, destruyendo el marco de pila original que la CPU guardó durante el fallo.',
+          seniorFix: 'Usa una rutina en ensamblador puro que determine si el fallo usaba MSP o PSP y pase dicho puntero como primer argumento R0 a la función de autopsia en C.'
+        }
+      ]
+    },
+    {
+      id: 'm15-c2',
+      chapterNumber: 'Capítulo 15.2',
+      title: 'Mecanismos de Depuración Hardware: SWD, JTAG y Registro de Trazas CoreSight DWT',
+      subtitle: 'Puntos de interrupción por hardware (FPB), Watchpoints de datos y medición de ciclos de reloj sin instrumentación',
+      paragraphs: [
+        'La depuración en sistemas embebidos modernos se realiza mediante interfaces de acceso al silicio estandarizadas. Históricamente se utilizó el estándar IEEE 1149.1 (JTAG), que requiere 4 o 5 señales (TDI, TDO, TCK, TMS y nTRST). En microcontroladores con encapsulados reducidos, ARM introdujo la interfaz Serial Wire Debug (SWD), que ofrece la misma funcionalidad completa de depuración utilizando solo dos pines físicos: SWCLK (reloj) y SWDIO (datos bidireccionales).',
+        'En el interior del chip, el bus SWD se conecta al sistema CoreSight de ARM. Este incluye el bloque Flash Patch and Breakpoint (FPB), que permite fijar puntos de parada (breakpoints) en memoria Flash interceptando las direcciones de instrucción solicitadas por el bus del procesador y sustituyéndolas por una instrucción BKPT sin necesidad de modificar ni borrar físicamente la memoria Flash no volátil.',
+        'Otro bloque vital es el Data Watchpoint and Trace (DWT). El DWT incluye comparadores de direcciones para detectar escrituras no autorizadas sobre variables específicas (Hardware Watchpoints) y el contador de ciclos de CPU DWT->CYCCNT. Al ser un contador de 32 bits conectado directamente al reloj de ejecución del núcleo, permite medir la duración exacta de cualquier bloque de código en nanosegundos sin introducir la sobrecarga temporal de funciones software.'
+      ],
+      formulas: [
+        {
+          name: 'Conversión de Ciclos DWT a Tiempo Físico',
+          expression: 'Tiempo_Segundos = Ciclos_DWT / Frecuencia_CPU_Hz',
+          explanation: 'En un microcontrolador a 84 MHz (como el STM32F401), cada incremento de DWT->CYCCNT representa exactamente 11.904 nanosegundos.'
+        }
+      ],
+      table: {
+        headers: ['Módulo CoreSight', 'Registros Clave', 'Función Principal', 'Sobrecarga de Ejecución'],
+        rows: [
+          ['DWT Cycle Counter', 'DWT->CTRL, DWT->CYCCNT', 'Cuenta cada ciclo de reloj ejecutado por la CPU', '0% (Hardware libre de interferencia)'],
+          ['DWT Watchpoint', 'DWT->COMPn, DWT->MASKn', 'Detiene la CPU cuando una dirección de RAM se lee o escribe', '0% (Detención instantánea por hardware)'],
+          ['FPB Breakpoint', 'FPB->CTRL, FPB->COMPn', 'Punto de interrupción sobre código en memoria Flash', '0% hasta que se alcanza el breakpoint'],
+          ['ITM Trace (SWO)', 'ITM->PORT[0]', 'Envío de mensajes printf por un pin dedicado sin bloquear el núcleo', 'Menor al 1% de la carga de un UART']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Medición Precisa de Tiempo de Ejecución (WCET) con DWT',
+        problemStatement:
+          'Escribe una macro en C para medir el número exacto de ciclos y microsegundos que tarda en ejecutarse una rutina criptográfica en un chip a 64 MHz.',
+        steps: [
+          '1. Habilitar el bit TRCENA en CoreDebug->DEMCR (0xE000EDFC).',
+          '2. Poner a cero el contador DWT->CYCCNT.',
+          '3. Habilitar el bit CYCCNTENA en DWT->CTRL.',
+          '4. Leer el valor antes y después de la sección bajo prueba y restar.'
+        ],
+        codeOrMath: `CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;\nDWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;\nuint32_t t_start = DWT->CYCCNT;\nejecutar_sha256_bloque();\nuint32_t t_elapsed_cycles = DWT->CYCCNT - t_start;\nuint32_t t_elapsed_us = t_elapsed_cycles / 64U; // A 64 MHz: 64 ciclos = 1 us`,
+        conclusion: 'La instrumentación con DWT es determinista y no altera los registros de estado ni el pipeline de la CPU.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Intentar leer DWT->CYCCNT sin haber activado previamente el bit TRCENA en CoreDebug->DEMCR',
+          whyItFails:
+            'Por defecto el bloque de depuración CoreSight está apagado para ahorrar energía; el contador CYCCNT permanece en 0 independientemente de las instrucciones ejecutadas.',
+          seniorFix: 'Asegúrate de escribir (1UL << 24) en CoreDebug->DEMCR antes de tocar DWT->CTRL.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 16: ULTRA-BAJO CONSUMO Y GESTIÓN ENERGÉTICA CON BATERÍAS
+  // =========================================================================
+  16: [
+    {
+      id: 'm16-c1',
+      chapterNumber: 'Capítulo 16.1',
+      title: 'Física del Consumo en Silicio CMOS: Potencia Dinámica frente a Corrientes de Fuga',
+      subtitle: 'La ley P = C·V²·f, dominios de retención de SRAM y el cálculo del perfil energético medio',
+      paragraphs: [
+        'En aplicaciones IoT a batería, nodos de sensores remotos y microsatélites CubeSat, la autonomía energética es un requisito de diseño crítico. Para optimizar el firmware de bajo consumo, se debe comprender la física de los transistores CMOS que componen el microcontrolador.',
+        'La potencia total disipada por un chip tiene dos componentes: la Potencia Dinámica (P_din) y la Potencia Estática o de Fuga (P_est). La potencia dinámica se disipa cada vez que un nodo lógico cambia de estado (0 a 1 o 1 a 0), cargando y descargando la capacidad parásita C de las puertas lógicas a la tensión V y frecuencia f: P_din = C * V^2 * f. Esto significa que reducir la frecuencia de reloj a la mitad reduce a la mitad el consumo dinámico, pero reducir la tensión de alimentación reduce el consumo de forma cuadrática.',
+        'Por otro lado, la potencia estática se debe a las corrientes de fuga cuántica a través del óxido de puerta de los transistores incluso cuando el reloj está completamente detenido: P_est = I_leak * V. Por ello, los microcontroladores de ultra-bajo consumo dividen su circuitería en múltiples Dominios de Energía (Power Domains): en modo Deep-Sleep, interruptores de potencia aíslan el núcleo de la CPU y los periféricos de alta velocidad cortando por completo su alimentación, mientras solo un dominio diminuto retiene la memoria SRAM y el reloj de tiempo real (RTC) a 32.768 kHz.'
+      ],
+      formulas: [
+        {
+          name: 'Ley de Potencia Dinámica CMOS',
+          expression: 'P_din = C * V^2 * f',
+          explanation: 'El consumo por conmutación es proporcional a la frecuencia de reloj y cuadrático con la tensión de alimentación.'
+        },
+        {
+          name: 'Corriente Media y Autonomía de Batería',
+          expression: 'I_media = (I_run * T_run + I_sleep * T_sleep) / (T_run + T_sleep)',
+          explanation: 'Autonomía (horas) = Capacidad_Batería (mAh) * 1000 / I_media (uA). La clave del éxito es maximizar T_sleep y minimizar T_run mediante ráfagas rápidas.'
+        }
+      ],
+      table: {
+        headers: ['Modo de Consumo', 'Consumo Típico', 'Estado del Reloj', 'Tiempo de Despertar', 'Fuente de Reactivación'],
+        rows: [
+          ['Run (84 MHz)', '~15 mA a 25 mA', 'PLL y todos los buses activos a máxima frecuencia', '0 ns (Ejecución continua)', 'N/A'],
+          ['Sleep (WFI)', '~2 mA a 5 mA', 'Reloj de CPU detenido; periféricos y DMA siguen operando', '< 1 microsegundo', 'Cualquier interrupción periférica (UART, Timer, ADC)'],
+          ['Stop / Deep-Sleep', '~2 uA a 15 uA', 'Regulador en bajo consumo; osciladores apagados; SRAM retenida', '5 a 10 microsegundos', 'Líneas externas EXTI o alarma periódica de RTC'],
+          ['Standby / System OFF', '~0.1 uA a 1 uA', 'Todo el chip apagado excepto detector de flanco o pin RESET', '50 a 200 microsegundos', 'Flanco en pin de despertar (Wake-up pin) o reinicio total']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Cálculo de Vida Útil de una Batería CR2032',
+        problemStatement:
+          'Un sensor de temperatura con una pila de botón CR2032 de 220 mAh despierta cada 10 segundos, realiza una lectura en 5 milisegundos consumiendo 8 mA en modo activo y duerme en modo Stop consumiendo 3 µA. Calcula la corriente media y los años de duración teórica.',
+        steps: [
+          '1. Periodo total: T_total = 10.000 ms; Tiempo activo: T_run = 5 ms; Tiempo dormido: T_sleep = 9.995 ms.',
+          '2. Carga en activo por ciclo: Q_run = 8 mA * 5 ms = 40 mA·ms.',
+          '3. Carga en sueño por ciclo: Q_sleep = 0.003 mA * 9.995 ms = 29.985 mA·ms.',
+          '4. Carga total por ciclo: Q_total = 40 + 29.985 = 69.985 mA·ms.',
+          '5. Corriente media: I_media = 69.985 mA·ms / 10.000 ms = 0.006998 mA = ~7.0 µA.',
+          '6. Autonomía: Horas = 220 mAh / 0.007 mA = 31.428 horas -> Años = 31.428 / 8760 = 3.58 años de vida de batería.'
+        ],
+        codeOrMath: `// Cálculo del perfil en C:\nuint32_t i_run_ua = 8000U;\nuint32_t i_sleep_ua = 3U;\nuint32_t i_avg_ua = ((i_run_ua * 5U) + (i_sleep_ua * 9995U)) / 10000U; // ~7 uA`,
+        conclusion: 'Ejecutar a máxima frecuencia durante el mínimo tiempo posible (carrera hacia el sueño o Race-to-Sleep) maximiza la duración de la batería frente a frecuencias lentas sostenidas.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Dejar pines GPIO configurados como Entradas Digitales sin resistencias Pull-Up/Pull-Down antes de entrar en Deep-Sleep',
+          whyItFails:
+            'Un pin flotante adquiere una tensión intermedia cercana a VDD/2, provocando que los transistores P y N del inversor de entrada conduzcan a la vez, drenando hasta 200 µA por pin de forma parasitaria.',
+          seniorFix: 'Reconfigura todos los pines GPIO no conectados como Modo Analógico (Analog Mode, sin Schmitt Trigger) antes de entrar en sueño profundo.'
+        }
+      ]
+    },
+    {
+      id: 'm16-c2',
+      chapterNumber: 'Capítulo 16.2',
+      title: 'Estrategias de Firmware para Reducción de Consumo: WFI, WFE y Filosofía Event-Driven',
+      subtitle: 'Diferencias entre Wait For Interrupt y Wait For Event, Sleep-on-Exit y arquitectura sin polling',
+      paragraphs: [
+        'A nivel de software, el salto cualitativo hacia el ultra-bajo consumo se produce al erradicar por completo los bucles de sondeo activo (polling) como while(!ready) {}. Cada microsegundo que la CPU pasa en un bucle de espera consume energía inútilmente.',
+        'La arquitectura ARM Cortex-M proporciona dos instrucciones de detención de reloj: WFI (Wait For Interrupt) y WFE (Wait For Event). La instrucción WFI suspende la ejecución hasta que se produce una interrupción que deba ser atendida por el NVIC. La instrucción WFE, en cambio, comprueba el registro de eventos de un bit interno del núcleo: si el registro está en 0, detiene la CPU; si está en 1, lo limpia y continúa sin coste de salto de interrupción.',
+        'Otra optimización arquitectónica clave es el modo Sleep-on-Exit (bit 1 del registro SCB->SCR). En un sistema gobernado por eventos (Event-Driven), la CPU duerme continuamente. Cuando llega un evento (como la recepción de un byte por UART o un flanco en un botón), la CPU se despierta directamente dentro de la rutina de servicio de interrupción (ISR), procesa el dato y, al ejecutar la instrucción de retorno de excepción, vuelve automáticamente al estado de sueño profundo sin pasar por el hilo principal main(), eliminando la sobrecarga de dos cambios de contexto.'
+      ],
+      formulas: [
+        {
+          name: 'Registro de Control del Sistema (SCB->SCR)',
+          expression: 'SCB->SCR: Bit 1 = SLEEPONEXIT | Bit 2 = SLEEPDEEP | Bit 4 = SEVONPEND',
+          explanation: 'Configura el comportamiento del núcleo ARM ante la salida de interrupciones y el nivel de profundidad de apagado del regulador de tensión.'
+        }
+      ],
+      table: {
+        headers: ['Instrucción / Registro', 'Efecto en la CPU', 'Comportamiento de Reactivación', 'Caso de Uso Recomendado'],
+        rows: [
+          ['__WFI()', 'Detiene el reloj de la CPU', 'Despierta por cualquier ISR habilitada en el NVIC', 'Espera bloqueante en sistemas con RTOS o bucle cooperativo'],
+          ['__WFE()', 'Comprueba registro de evento; duerme si es 0', 'Despierta por evento SEV de otro núcleo o periférico', 'Sincronización multicore y spinlocks en chips como RP2040'],
+          ['SLEEPONEXIT = 1', 'Duerme de nuevo al salir de la ISR', 'Evita saltar al bucle main() tras procesar una interrupción', 'Sistemas de sensores que solo reaccionan a eventos esporádicos'],
+          ['SEVONPEND = 1', 'Genera evento si entra interrupción deshabilitada', 'Permite que WFE despierte sin ejecutar la rutina ISR', 'Ahorro de código y pilas en tareas de espera mínima']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Patrón de Sueño Guiado por Eventos con WFE',
+        problemStatement:
+          'Escribe el bucle principal de bajo consumo canónico para procesar eventos de una cola sin sondeo continuo.',
+        steps: [
+          '1. Deshabilitar interrupciones temporalmente (__disable_irq) para evitar condiciones de carrera entre la comprobación de la cola y la orden de sueño.',
+          '2. Comprobar si hay eventos pendientes en el buffer o cola.',
+          '3. Si no hay eventos, invocar __WFI() o __WFE(). En Cortex-M, WFI despierta incluso con interrupciones enmascaradas.',
+          '4. Habilitar interrupciones (__enable_irq) para procesar la ISR correspondiente y atender el evento.'
+        ],
+        codeOrMath: `for (;;) {\n    __disable_irq();\n    if (!has_pending_events()) {\n        __DSB();\n        __WFI(); // Duerme la CPU de forma segura\n    }\n    __enable_irq();\n    process_next_event();\n}`,
+        conclusion: 'Este patrón elimina las condiciones de carrera donde un evento entra justo antes de dormirse y quedaría sin atender hasta el siguiente ciclo.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Comprobar una condición y llamar a __WFI() con interrupciones habilitadas sin protección atómica',
+          whyItFails:
+            'Si la interrupción que genera el evento salta entre el if y la instrucción __WFI(), la ISR se ejecuta antes de dormir y la CPU entrará en sueño cuando ya no queda ningún evento pendiente, congelándose hasta el siguiente suceso.',
+          seniorFix: 'Deshabilita interrupciones antes del if; en Cortex-M la instrucción WFI despierta la CPU de forma segura aunque PRIMASK esté activo.'
+        }
+      ]
+    }
+  ],
+
+  // =========================================================================
+  // MÓDULO 17: SEGURIDAD HARDWARE (MPU, SECURE BOOT, SHA-256 Y TRNG)
+  // =========================================================================
+  17: [
+    {
+      id: 'm17-c1',
+      chapterNumber: 'Capítulo 17.1',
+      title: 'Aislamiento de Memoria por Hardware con la MPU: Particionado Espacial y Bit Execute-Never (XN)',
+      subtitle: 'Configuración de regiones de protección, modos Privilegiado vs No-Privilegiado y prevención de ataques de inyección de código',
+      paragraphs: [
+        'En sistemas embebidos de alta integridad y seguridad (Safety and Security), asumir que todo el código es confiable es un error que ha provocado vulnerabilidades críticas en dispositivos médicos, automotrices y satélites. Si una pila de protocolos de red (como una pila TCP/IP o Bluetooth) sufre un desbordamiento de búfer (Buffer Overflow), un atacante podría sobrescribir la memoria adyacente y tomar el control del sistema.',
+        'La Unidad de Protección de Memoria (MPU, Memory Protection Unit) es un periférico de silicio integrado en el bus del procesador que monitoriza cada ciclo de acceso a memoria (búsqueda de instrucciones, lecturas y escrituras de datos). La MPU permite definir entre 8 y 16 Regiones de Protección con atributos de acceso granulares: tamaño de la región, permisos para Modo Privilegiado y No-Privilegiado, y el bit Execute Never (XN).',
+        'El bit XN (Execute Never, bit 28 del registro MPU->RASR) es la defensa física más potente contra la inyección de código. Al marcar toda la memoria SRAM (0x20000000) como XN=1, la CPU tiene permiso para leer y escribir variables en la RAM, pero si el Program Counter intenta apuntar a cualquier dirección dentro de la SRAM para ejecutar instrucciones, la MPU corta el ciclo de bus de forma inmediata y lanza una excepción MemManage_Handler antes de que se ejecute una sola instrucción maliciosa.'
+      ],
+      formulas: [
+        {
+          name: 'Restricción de Alineamiento de Regiones MPU en ARMv7-M',
+          expression: 'Dirección_Base_RBAR % Tamaño_Región == 0',
+          explanation: 'La dirección base de cada región de la MPU debe ser obligatoriamente un múltiplo entero de su tamaño (potencia de 2 desde 32 bytes hasta 4 GB).'
+        }
+      ],
+      table: {
+        headers: ['Campo en MPU->RASR', 'Bits', 'Significado en Hardware', 'Configuración de Seguridad Recomendada'],
+        rows: [
+          ['XN (Execute Never)', 'Bit 28', '1 = Prohíbe ejecutar código; 0 = Permite buscar instrucciones', 'XN = 1 en toda la SRAM y periféricos; XN = 0 solo en Flash'],
+          ['AP (Access Permissions)', 'Bits 26:24', 'Define permisos R/W en modos Privilegiado y No-Privilegiado', '011 = RW total; 001 = RW solo Privilegiado; 110 = Solo lectura'],
+          ['TEX, C, B', 'Bits 21:16', 'Tipo de memoria y políticas de caché (Write-Through, Bufferable)', 'Device / Non-Shareable para registros de periféricos'],
+          ['SIZE', 'Bits 5:1', 'Tamaño de la región = 2^(SIZE + 1) bytes (mínimo 32 bytes)', 'Ajustar al tamaño exacto de la sección o buffer a proteger'],
+          ['ENABLE', 'Bit 0', '1 = Región activa; 0 = Región ignorada', 'Activar solo tras escribir RBAR y RASR de forma atómica']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Protección de la Pila con MPU contra Buffer Overflow',
+        problemStatement:
+          'Configura una región MPU de 256 bytes al final de la pila (Stack Guard) con permisos de Acceso Prohibido (AP=000) para que cualquier desbordamiento de pila dispare una excepción instantánea en el STM32F401.',
+        steps: [
+          '1. Deshabilitar la MPU escribiendo 0 en MPU->CTRL.',
+          '2. Seleccionar la Región 1 en MPU->RNR.',
+          '3. Definir la dirección base alineada a 256 bytes: MPU->RBAR = 0x20001F00.',
+          '4. Configurar RASR: XN=1 (bit 28), AP=000 (Sin acceso, bits 26:24=0), SIZE=7 (2^(7+1)=256B, bits 5:1=7), ENABLE=1 (bit 0=1).',
+          '5. Habilitar la MPU con el bit PRIVDEFENA activo para que el resto de la memoria use los permisos por defecto.'
+        ],
+        codeOrMath: `MPU->CTRL = 0U;\nMPU->RNR  = 1U;\nMPU->RBAR = 0x20001F00U;\nMPU->RASR = (1UL << 28) | (0UL << 24) | (7UL << 1) | 1UL;\nMPU->CTRL = MPU_CTRL_PRIVDEFENA_Msk | MPU_CTRL_ENABLE_Msk;\n__DSB();\n__ISB();`,
+        conclusion: 'Cualquier intento de escribir más allá del límite de la pila colisiona con la región de guardia y aborta el proceso sin corromper otras tareas.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Activar la MPU sin habilitar el bit PRIVDEFENA ni definir una región para el mapa de periféricos (0x40000000)',
+          whyItFails:
+            'Cualquier dirección no cubierta por una región MPU activa genera una violación de acceso MemManage; si la CPU intenta escribir en un registro de periférico sin PRIVDEFENA, el chip entra en HardFault de inmediato.',
+          seniorFix: 'Activa siempre MPU_CTRL_PRIVDEFENA_Msk para que el código en modo privilegiado conserve el mapa de memoria por defecto en las zonas no reservadas.'
+        }
+      ]
+    },
+    {
+      id: 'm17-c2',
+      chapterNumber: 'Capítulo 17.2',
+      title: 'Arranque Seguro (Secure Boot), Generación de Entropía TRNG y Criptografía de Tiempo Constante',
+      subtitle: 'Cadena de confianza (Chain of Trust), firmas ECDSA/SHA-256 y mitigación de ataques de canal lateral',
+      paragraphs: [
+        'El arranque seguro (Secure Boot) establece la raíz de confianza (Root of Trust) en un sistema embebido. Su objetivo es garantizar que el microcontrolador ejecute exclusivamente firmware legítimo e inalterado firmado por el fabricante. La cadena de confianza comienza en una Mask ROM inmutable grabada en silicio durante la fabricación del chip; la ROM calcula el hash criptográfico del Bootloader secundario en Flash y valida su firma digital mediante criptografía asimétrica (como ECDSA P-256 o RSA-3072) usando una clave pública verificada.',
+        'En operaciones criptográficas en microcontroladores, escribir código funcional no es suficiente: el código debe ser resistente a Ataques de Canal Lateral (Side-Channel Attacks). Si un algoritmo verifica una firma o compara un hash mediante una función estándar como memcmp() o strcmp(), la función retorna de forma temprana tan pronto como encuentra el primer byte discordante. Un atacante con un osciloscopio o midiendo el tiempo de respuesta por el puerto serie puede deducir la clave o la firma byte a byte observando variaciones de apenas decenas de nanosegundos (Timing Attack).',
+        'Por último, la seguridad de cualquier protocolo (como TLS, SSH o generación de claves efímeras) depende de la calidad de sus números aleatorios. La función estándar rand() de C es un generador pseudoaleatorio predecible. Los chips seguros integran un Generador Verdadero de Números Aleatorios por Hardware (TRNG), que muestrea el ruido térmico cuántico e inestabilidades de osciladores en anillo analógicos para obtener entropía física real imposible de predecir por software.'
+      ],
+      formulas: [
+        {
+          name: 'Verificación en Tiempo Constante',
+          expression: 'diff = OR_acumulado(a[i] ^ b[i])  para i de 0 a N-1 sin saltos condicionales',
+          explanation: 'La función ejecuta exactamente el mismo número de ciclos de reloj independientemente de cuántos bytes coincidan entre el secreto y la entrada.'
+        }
+      ],
+      table: {
+        headers: ['Elemento Criptográfico', 'Mecanismo en Silicio', 'Riesgo si se Implementa Mal', 'Estándar Industrial'],
+        rows: [
+          ['Secure Boot', 'ROM inmutable + Clave pública en eFuses', 'Inyección de firmware espía o malware permanente', 'NIST SP 800-193 / PSA Certified'],
+          ['TRNG', 'Digitalización de ruido térmico en diodos/osciladores', 'Claves predecibles si se usa rand() en lugar del TRNG', 'NIST SP 800-90A/B / FIPS 140-3'],
+          ['Comparación Hash/MAC', 'Bucle XOR bit a bit en tiempo constante', 'Ataque de tiempo (Timing Attack) que extrae la clave', 'FIPS 180-4 / Guía de Criptografía Segura'],
+          ['Borrado Seguro (Zeroization)', 'Escritura forzada con punteros volatile', 'El compilador elimina el memset si la variable no se reutiliza', 'MISRA-C:2012 Regla 8.14']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Implementación de Comparación de Tiempo Constante en C',
+        problemStatement:
+          'Escribe una función en C inmune a ataques de tiempo que compare dos firmas SHA-256 de 32 bytes y devuelva verdadero solo si son idénticas.',
+        steps: [
+          '1. Declarar un acumulador volatile uint8_t diff = 0.',
+          '2. Recorrer los 32 bytes obligatoriamente de principio a fin sin usar break ni return.',
+          '3. En cada iteración, calcular el XOR entre ambos bytes y acumularlo mediante OR lógico en diff.',
+          '4. Retornar si diff es exactamente cero al finalizar todo el bucle.'
+        ],
+        codeOrMath: `bool secure_crypto_verify_32b(const uint8_t *a, const uint8_t *b) {\n    volatile uint8_t diff = 0U;\n    for (uint32_t i = 0U; i < 32U; i++) {\n        diff |= (uint8_t)(a[i] ^ b[i]); // Tiempo idéntico acierte o falle\n    }\n    return (diff == 0U);\n}`,
+        conclusion: 'La función ejecuta exactamente la misma secuencia de instrucciones máquina independientemente del contenido de los datos probados.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Usar memset(clave, 0, sizeof(clave)) para borrar datos confidenciales de la SRAM al terminar una función',
+          whyItFails:
+            'Los optimizadores modernos de GCC y Clang (-O2) detectan que la memoria de "clave" no se vuelve a leer antes de retornar y eliminan la llamada a memset por considerarla código muerto (Dead Store Elimination), dejando la clave intacta en la RAM.',
+          seniorFix: 'Utiliza una función de borrado seguro con puntero volátil o memset_s que garantice la escritura física en la celda de silicio.'
+        }
+      ]
+    }
   ]
 };

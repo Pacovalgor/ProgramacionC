@@ -13,6 +13,7 @@
  * - `Lab 7` (`peripherals-adc-wdg`): Periféricos — Conversor `SAR ADC` de 12 bits, Árbol de Reloj `PLL` y `Watchdog Timer (IWDG)`.
  * - `Lab 8` (`multi-file-toolchain`): Librerías, Linker & Boot — Proyectos `.h`/`.c`, librerías `.a`, `const`/`union` y salto `Bootloader -> App (SCB->VTOR)`.
  * - `Lab 9` (`space-defense-ecss`): Normativa Espacial `ECSS`/`NASA` & `Rad-Hard` — Simulador de radiación cósmica (`SEU`), votador `TMR 2-de-3`, `Memory Scrubbing`, calculadora `ECSS Annex M` y certificador `100% MC/DC`.
+ * - `Lab 10` (`senior-rtos-can-pid-fault`): Sistemas Senior Industriales — Conmutación de Contexto RTOS & Pila (PSP vs MSP / PendSV), Arbitraje de Bus CAN 2.0B sin colisión destructiva, Regulador PID en Punto Fijo con Anti-Windup, y Decodificador Forense de Fallos HardFault / CFSR / BFAR.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -33,7 +34,12 @@ import {
   BookOpen,
   CheckCircle2,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  Layers,
+  Radio,
+  Sliders,
+  Bug,
+  ArrowRightLeft
 } from 'lucide-react';
 import { MCUProfile } from '../data/mcusData';
 import { LabViewType } from '../data/curriculumData';
@@ -670,6 +676,12 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
       label: '9. ECSS/NASA & Rad-Hard',
       shortDesc: 'TMR, SEU, MC/DC y Márgenes',
       icon: <ShieldAlert className="w-4 h-4 text-rose-300" />
+    },
+    {
+      id: 'senior-rtos-can-pid-fault',
+      label: '10. RTOS, CAN, PID & Faults',
+      shortDesc: 'Context Switch, CAN Arb, PID y HardFault',
+      icon: <Layers className="w-4 h-4 text-emerald-300" />
     }
   ];
 
@@ -702,6 +714,21 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
   });
   const [normativeFilter, setNormativeFilter] = useState<'ALL' | 'SHALL_NOT' | 'SHALL' | 'SHOULD_NOT'>('ALL');
 
+  // --- STATE FOR LAB 10: SENIOR INDUSTRIAL (RTOS CONTEXT SWITCH, CAN ARBITRATION, PID ANTI-WINDUP & HARDFAULT FORENSICS) ---
+  const [lab10Substation, setLab10Substation] = useState<'rtos' | 'can' | 'pid' | 'fault'>('rtos');
+  const [rtosPhase, setRtosPhase] = useState<number>(0);
+  const [canBitIdx, setCanBitIdx] = useState<number>(0);
+  const [canNode1Id, setCanNode1Id] = useState<number>(0x012); // Freno de Emergencia (Alta prioridad): 0b00000010010
+  const [canNode2Id, setCanNode2Id] = useState<number>(0x018); // Sensor Telemetría (Menor prioridad): 0b00000011000
+  const [pidKp, setPidKp] = useState<number>(4);
+  const [pidKi, setPidKi] = useState<number>(2);
+  const [pidKd, setPidKd] = useState<number>(1);
+  const [pidAntiWindup, setPidAntiWindup] = useState<boolean>(true);
+  const [pidCycleCount, setPidCycleCount] = useState<number>(6);
+  const [faultPreset, setFaultPreset] = useState<'null-ptr' | 'div-zero' | 'mpu-violation' | 'unaligned'>('null-ptr');
+  const [customCfsrHex, setCustomCfsrHex] = useState<string>('0x00008200');
+  const [customBfarHex, setCustomBfarHex] = useState<string>('0x00000004');
+
   const leftPins = mcu.pins.filter((p) => p.side === 'left');
   const rightPins = mcu.pins.filter((p) => p.side === 'right');
 
@@ -711,7 +738,7 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
       <div className="retro-titlebar px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-pixel">
         <div className="flex items-center gap-2 text-cyan-300">
           <span className="px-1.5 py-0.5 bg-cyan-400 text-slate-950 font-bold">HW-LAB</span>
-          <span>╔══ [ RACK_INSTRUMENTACIÓN_SILICIO // ESTACIONES_00_A_09.EXE ] ══╗</span>
+          <span>╔══ [ RACK_INSTRUMENTACIÓN_SILICIO // ESTACIONES_00_A_10.EXE ] ══╗</span>
         </div>
         <div className="flex items-center gap-3 text-[11px] font-mono text-emerald-400">
           <span>BUS: {mcu.bitWidth}-BIT</span>
@@ -3852,6 +3879,790 @@ firmware.elf: src/main.c libmotor.a
                 </div>
               </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {/* =========================================================================
+          LAB 10: SENIOR INDUSTRIAL — RTOS CONTEXT SWITCH, CAN 2.0B ARBITRATION,
+                  DISCRETE PID WITH ANTI-WINDUP & CORTEX-M HARDFAULT FORENSICS
+          ========================================================================= */}
+      {activeLab === 'senior-rtos-can-pid-fault' && (() => {
+        // CAN bus bit calculation
+        const node1Bits = canNode1Id.toString(2).padStart(11, '0').split('').map(Number);
+        const node2Bits = canNode2Id.toString(2).padStart(11, '0').split('').map(Number);
+        
+        // Determine collision point
+        let collisionBit = -1;
+        for (let i = 0; i < 11; i++) {
+          if (node1Bits[i] !== node2Bits[i]) {
+            collisionBit = i;
+            break;
+          }
+        }
+        const hasCollided = collisionBit !== -1 && canBitIdx >= collisionBit;
+        const node1BitAtIdx = node1Bits[canBitIdx];
+        const node2BitAtIdx = node2Bits[canBitIdx];
+        // Bus wired-AND: 0 is dominant
+        const busBitAtIdx = (node1BitAtIdx === 0 || (!hasCollided && node2BitAtIdx === 0)) ? 0 : 1;
+        const node2Lost = hasCollided && node1Bits[collisionBit] === 0 && node2Bits[collisionBit] === 1;
+
+        // PID simulation calculation over 10 discrete steps
+        const targetRpm = 1200;
+        const pidHistory: {
+          step: number;
+          currentRpm: number;
+          error: number;
+          pTerm: number;
+          iTerm: number;
+          dTerm: number;
+          outputPercent: number;
+          clamped: boolean;
+        }[] = [];
+
+        let simRpm = 0;
+        let simIntegral = 0;
+        let prevSimError = targetRpm;
+        const maxIntegral = 400;
+
+        for (let s = 0; s < 10; s++) {
+          const err = targetRpm - simRpm;
+          const p = Math.round(pidKp * err * 0.1);
+          let newI = simIntegral + Math.round(pidKi * err * 0.1);
+          let clamped = false;
+          if (pidAntiWindup) {
+            if (newI > maxIntegral) {
+              newI = maxIntegral;
+              clamped = true;
+            } else if (newI < -maxIntegral) {
+              newI = -maxIntegral;
+              clamped = true;
+            }
+          }
+          simIntegral = newI;
+          const d = Math.round(pidKd * (err - prevSimError) * 0.1);
+          prevSimError = err;
+
+          let rawOut = Math.round(p + simIntegral + d);
+          if (rawOut > 100) rawOut = 100;
+          if (rawOut < 0) rawOut = 0;
+
+          // Simple first-order plant response
+          simRpm = Math.min(1800, Math.round(simRpm + rawOut * 2.2));
+
+          pidHistory.push({
+            step: s + 1,
+            currentRpm: simRpm,
+            error: err,
+            pTerm: p,
+            iTerm: simIntegral,
+            dTerm: d,
+            outputPercent: rawOut,
+            clamped
+          });
+        }
+
+        const activePidPoint = pidHistory[Math.min(pidCycleCount - 1, pidHistory.length - 1)] || pidHistory[0];
+
+        // HardFault CFSR decode values based on selected preset
+        let cfsrVal = 0x00008200;
+        let bfarVal = 0x00000004;
+        let mmfVal = 0x2001fffc;
+        let faultTitle = 'Puntero NULO / Desreferencia de Dirección Inválida';
+        let faultDesc = 'La CPU intentó leer o escribir en la dirección 0x00000004 (offset de struct sobre puntero NULL). El bus generó una respuesta de error síncrona precisa.';
+        let faultAsm = 'LDR R0, [R1, #4]  ; R1 = 0x00000000 (NULL) -> Genera PRECISERR en BusFault';
+        let faultFix = 'MISRA-C Regla 17.5 / NASA Power of Ten: Comprobar siempre if (dev != NULL) antes de desreferenciar y habilitar MPU en los primeros 4KB de memoria flash/ROM.';
+
+        if (faultPreset === 'div-zero') {
+          cfsrVal = 0x02000000;
+          bfarVal = 0x00000000;
+          faultTitle = 'División por Cero Entera en CPU';
+          faultDesc = 'Se ejecutó la instrucción SDIV o UDIV con divisor igual a 0. Con el bit CCR.DIV_0_TRP = 1 habilitado en Cortex-M, el núcleo atrapa la operación como UsageFault.';
+          faultAsm = 'SDIV R0, R2, R3  ; R3 = 0 -> Genera DIVBYZERO en UsageFault';
+          faultFix = 'Validar siempre divisores dinámicos: if (divisor == 0) { return STATUS_ERR_MATH; } antes de cualquier operación aritmética modular o de escalado.';
+        } else if (faultPreset === 'mpu-violation') {
+          cfsrVal = 0x00000001;
+          mmfVal = 0x2001fffc;
+          faultTitle = 'Violación de Permisos de Memoria MPU (IACCVIOL)';
+          faultDesc = 'La CPU intentó hacer FETCH de instrucción desde una región de SRAM marcada como XN (eXecute Never) por la MPU para mitigar inyecciones de shellcode.';
+          faultAsm = 'BLX R4  ; R4 = 0x2001FFFC (SRAM sin permiso de ejecución) -> Dispara MemManage Fault';
+          faultFix = 'Verificar el mapa de enlaces (.ld) para ubicar código únicamente en .text (Flash). Si se requiere código en RAM, configurar el atributo XN = 0 en esa región de la MPU.';
+        } else if (faultPreset === 'unaligned') {
+          cfsrVal = 0x01000000;
+          bfarVal = 0x20000103;
+          faultTitle = 'Acceso a Memoria Desalineado (UNALIGNED UsageFault)';
+          faultDesc = 'Se realizó un acceso de 32 bits (LDR/STR) sobre una dirección que no es múltiplo de 4 (0x20000103), estando activo el flag CCR.UNALIGN_TRP en el coprocesador del sistema.';
+          faultAsm = 'LDR R0, [R2]  ; R2 = 0x20000103 (No divisible por 4) -> Dispara UsageFault';
+          faultFix = 'Usar memcpy() para deserializar tramas de red/UART o utilizar __attribute__((packed, aligned(4))) para forzar que los campos de 32 bits queden alineados.';
+        }
+
+        return (
+          <div className="p-4 sm:p-6 space-y-6">
+            {/* Header del Laboratorio 10 */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold">
+                    ESTACIÓN 10 // SENIOR INDUSTRIAL
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">
+                    RTOS • BUS CAN 2.0B • CONTROL PID • FORENSE HARDFAULT
+                  </span>
+                </div>
+                <h3 className="text-lg font-bold text-slate-100 font-pixel mt-1">
+                  Laboratorio de Sistemas Críticos & Arquitectura Senior
+                </h3>
+              </div>
+
+              {/* Substation Navigation Tabs */}
+              <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1 border border-slate-800 rounded-lg">
+                {[
+                  { id: 'rtos' as const, label: '1. RTOS & Stacks', icon: <Layers className="w-3.5 h-3.5 text-emerald-400" /> },
+                  { id: 'can' as const, label: '2. Bus CAN 2.0B', icon: <Radio className="w-3.5 h-3.5 text-cyan-400" /> },
+                  { id: 'pid' as const, label: '3. PID & Anti-Windup', icon: <Sliders className="w-3.5 h-3.5 text-amber-400" /> },
+                  { id: 'fault' as const, label: '4. Forense HardFault', icon: <Bug className="w-3.5 h-3.5 text-rose-400" /> }
+                ].map((sub) => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setLab10Substation(sub.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono font-bold transition-all ${
+                      lab10Substation === sub.id
+                        ? 'bg-emerald-500/25 border border-emerald-400 text-emerald-200 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
+                    }`}
+                  >
+                    {sub.icon}
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ===================================================================
+                SUBSTATION 1: RTOS CONTEXT SWITCH & STACK FRAMES (PSP vs MSP / PendSV)
+                =================================================================== */}
+            {lab10Substation === 'rtos' && (
+              <div className="space-y-6">
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 sm:p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h4 className="text-sm font-bold text-emerald-300 font-mono flex items-center gap-2">
+                      <Layers className="w-4 h-4" /> Simulador de Cambio de Contexto en Silicio (SysTick & PendSV)
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setRtosPhase((p) => Math.max(0, p - 1))}
+                        disabled={rtosPhase === 0}
+                        className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 border border-slate-700 text-slate-200 text-xs font-mono rounded"
+                      >
+                        ◄ Paso Anterior
+                      </button>
+                      <button
+                        onClick={() => setRtosPhase((p) => Math.min(5, p + 1))}
+                        disabled={rtosPhase === 5}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-slate-950 font-bold text-xs font-mono rounded"
+                      >
+                        Siguiente Paso ({rtosPhase + 1}/6) ►
+                      </button>
+                      <button
+                        onClick={() => setRtosPhase(0)}
+                        className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-400 text-xs font-mono rounded"
+                      >
+                        Reiniciar
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+                    Visualiza exactamente cómo el núcleo ARM Cortex-M conmuta entre la <strong>Tarea A (Telemetría)</strong> y la <strong>Tarea B (Control de Motor)</strong> usando dos punteros de pila físicos independientes (<strong>PSP</strong> para código de usuario y <strong>MSP</strong> para el kernel del RTOS) sin corromper la memoria.
+                  </p>
+
+                  {/* Step Description Card */}
+                  <div className="p-3.5 bg-slate-900/90 border-l-4 border-emerald-400 border-y border-r border-slate-800 rounded-r-lg mb-5 space-y-1">
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="font-bold text-emerald-300">
+                        {rtosPhase === 0 && 'PASO 1/6: Tarea A en Ejecución Normal (User Mode)'}
+                        {rtosPhase === 1 && 'PASO 2/6: Disparo de SysTick IRQ (Excepción #15)'}
+                        {rtosPhase === 2 && 'PASO 3/6: Activación de PendSV (SCB->ICSR |= PENDSVSET)'}
+                        {rtosPhase === 3 && 'PASO 4/6: PendSV Salva Registros de Software en Pila A'}
+                        {rtosPhase === 4 && 'PASO 5/6: Conmutación de Puntero TCB (curr_tcb = next_tcb)'}
+                        {rtosPhase === 5 && 'PASO 5/6: Desapilado de Hardware y Retorno a Tarea B'}
+                      </span>
+                      <span className="text-[11px] px-2 py-0.5 bg-slate-950 rounded text-cyan-300 border border-slate-800">
+                        {rtosPhase === 0 && 'SP = PSP_A (0x200010E0) • Handler = INACTIVO'}
+                        {rtosPhase === 1 && 'SP = MSP (0x20007FF0) • Auto-push [xPSR..R0]'}
+                        {rtosPhase === 2 && 'PendSV Pendiente • Prioridad = 0xFF (Mínima)'}
+                        {rtosPhase === 3 && 'PendSV Ejecuta: STMDB PSP!, {R4-R11}'}
+                        {rtosPhase === 4 && 'curr_tcb->sp = PSP_A; PSP = next_tcb->sp'}
+                        {rtosPhase === 5 && 'BX LR (EXC_RETURN 0xFFFFFFFD) • Task B RUNS'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-normal">
+                      {rtosPhase === 0 && 'La CPU ejecuta Telemetry_Task() usando PSP. Los registros R0-R12 contienen los cálculos de telemetría de sensores.'}
+                      {rtosPhase === 1 && 'El temporizador de hardware SysTick llega a cero. La CPU conmuta al instante a MSP y guarda en la pila de la Tarea A los registros xPSR, PC, LR, R12, R3, R2, R1, R0.'}
+                      {rtosPhase === 2 && 'El planificador del RTOS detecta que MotorControl_Task() tiene mayor prioridad. Para no bloquear interrupciones urgentes de hardware, programa PendSV (la excepción con menor prioridad del chip).'}
+                      {rtosPhase === 3 && 'Al salir de SysTick, se dispara PendSV_Handler. El código en ensamblador ejecuta STMDB PSP!, {R4-R11} para guardar en la pila de la Tarea A los registros que el hardware no guardó automáticamente.'}
+                      {rtosPhase === 4 && 'PendSV guarda el PSP resultante en el TCB de la Tarea A y lee el puntero de pila del TCB de la Tarea B. Restaura los registros R4-R11 de la Tarea B ejecutando LDMIA PSP!, {R4-R11}.'}
+                      {rtosPhase === 5 && 'PendSV ejecuta BX LR con valor especial EXC_RETURN (0xFFFFFFFD). La lógica interna del silicio desapila automáticamente xPSR, PC, LR, R12, R3-R0 de PSP_B y restaura la Tarea B exactamente donde se interrumpió.'}
+                    </p>
+                  </div>
+
+                  {/* Architecture Diagram: CPU Registers + Stacks */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    {/* CPU Registers Status */}
+                    <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-lg p-3.5 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="text-xs font-bold uppercase text-cyan-300 font-mono">
+                          Registros del Núcleo CPU
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-200 border border-cyan-800">
+                          {rtosPhase === 0 ? 'MODO USUARIO (PSP)' : rtosPhase === 5 ? 'MODO USUARIO (PSP_B)' : 'MODO KERNEL (MSP)'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">Puntero Activo:</span>
+                          <span className="text-emerald-300 font-bold">
+                            {rtosPhase === 0 ? 'PSP_A (0x200010E0)' : rtosPhase === 5 ? 'PSP_B (0x200020E0)' : 'MSP (0x20007FE0)'}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">Program Counter (PC):</span>
+                          <span className="text-amber-300 font-bold">
+                            {rtosPhase <= 2 ? 'telemetry_task' : rtosPhase <= 4 ? 'PendSV_Handler' : 'motor_ctrl_task'}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">CONTROL.SPSEL:</span>
+                          <span className="text-cyan-300 font-bold">{rtosPhase === 0 || rtosPhase === 5 ? '1 (Usa PSP)' : '0 (Usa MSP)'}</span>
+                        </div>
+                        <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">TCB Activo:</span>
+                          <span className="text-purple-300 font-bold">{rtosPhase <= 3 ? '&tcb_telemetry (A)' : '&tcb_motor (B)'}</span>
+                        </div>
+                      </div>
+
+                      {/* Code Snippet for this phase */}
+                      <div className="pt-2">
+                        <div className="text-[11px] font-mono text-slate-400 mb-1">Ensamblador ejecutado en este instante:</div>
+                        <pre className="p-2.5 rounded bg-black border border-slate-800 text-[11px] font-mono text-emerald-400 overflow-x-auto leading-tight">
+                          {rtosPhase === 0 && '// Tarea A ejecutando en C:\ntelemetry_sample();\nfloat temp = adc_read();'}
+                          {rtosPhase === 1 && '// Hardware auto-push en PSP_A:\n// [xPSR, PC, LR, R12, R3, R2, R1, R0]\n// Entrando a SysTick_Handler'}
+                          {rtosPhase === 2 && '// Planificador en C:\nif (task_b.prio > task_a.prio) {\n  SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;\n}'}
+                          {rtosPhase === 3 && 'PendSV_Handler:\n  MRS   R0, PSP\n  STMDB R0!, {R4-R11} ; Salva regs software'}
+                          {rtosPhase === 4 && '  LDR   R1, =curr_tcb\n  STR   R0, [R1]      ; Salva SP_A\n  LDR   R0, [R2]      ; Lee SP_B\n  LDMIA R0!, {R4-R11} ; Restaura B'}
+                          {rtosPhase === 5 && '  MSR   PSP, R0\n  BX    LR            ; 0xFFFFFFFD -> Hardware pop\n  ; ¡Tarea B en marcha!'}
+                        </pre>
+                      </div>
+                    </div>
+
+                    {/* Stacks Visualizer: Task A vs Task B */}
+                    <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Task A Stack */}
+                      <div className={`p-3 rounded-lg border transition-all ${
+                        rtosPhase <= 3 ? 'bg-slate-900 border-cyan-500/50 shadow-md' : 'bg-slate-950 border-slate-800 opacity-60'
+                      }`}>
+                        <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-800">
+                          <span className="text-xs font-bold font-mono text-cyan-300">Pila Tarea A (Telemetría)</span>
+                          <span className="text-[10px] font-mono text-slate-400">Prio: 2</span>
+                        </div>
+                        <div className="space-y-1 text-[11px] font-mono">
+                          <div className="text-[10px] text-slate-500 mb-0.5">0x20001100 (Tope Pila)</div>
+                          <div className={`p-1 rounded text-center border ${
+                            rtosPhase >= 1 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-slate-950 text-slate-600 border-slate-800'
+                          }`}>
+                            xPSR, PC, LR, R12 (HW)
+                          </div>
+                          <div className={`p-1 rounded text-center border ${
+                            rtosPhase >= 1 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-slate-950 text-slate-600 border-slate-800'
+                          }`}>
+                            R3, R2, R1, R0 (HW)
+                          </div>
+                          <div className={`p-1 rounded text-center border ${
+                            rtosPhase >= 3 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-950 text-slate-600 border-slate-800'
+                          }`}>
+                            R11, R10, R9, R8 (SW PendSV)
+                          </div>
+                          <div className={`p-1 rounded text-center border ${
+                            rtosPhase >= 3 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-950 text-slate-600 border-slate-800'
+                          }`}>
+                            R7, R6, R5, R4 (SW PendSV)
+                          </div>
+                          <div className="text-[10px] text-cyan-400 pt-1 text-center font-bold">
+                            {rtosPhase >= 3 ? '▲ PSP_A = 0x200010A0 (Guardado)' : '▲ PSP_A Activo'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Task B Stack */}
+                      <div className={`p-3 rounded-lg border transition-all ${
+                        rtosPhase >= 4 ? 'bg-slate-900 border-emerald-500/50 shadow-md' : 'bg-slate-950 border-slate-800 opacity-60'
+                      }`}>
+                        <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-800">
+                          <span className="text-xs font-bold font-mono text-emerald-300">Pila Tarea B (Control Motor)</span>
+                          <span className="text-[10px] font-mono text-slate-400">Prio: 1 (Alta)</span>
+                        </div>
+                        <div className="space-y-1 text-[11px] font-mono">
+                          <div className="text-[10px] text-slate-500 mb-0.5">0x20002100 (Tope Pila)</div>
+                          <div className="p-1 rounded text-center border bg-amber-500/20 text-amber-300 border-amber-500/40">
+                            xPSR, PC=motor_task, LR (HW)
+                          </div>
+                          <div className="p-1 rounded text-center border bg-amber-500/20 text-amber-300 border-amber-500/40">
+                            R3, R2, R1, R0 (HW)
+                          </div>
+                          <div className={`p-1 rounded text-center border ${
+                            rtosPhase >= 4 ? 'bg-emerald-500/30 text-emerald-200 border-emerald-400 font-bold' : 'bg-emerald-500/10 text-emerald-400/50 border-emerald-500/20'
+                          }`}>
+                            R11, R10, R9, R8 (Desapilados)
+                          </div>
+                          <div className={`p-1 rounded text-center border ${
+                            rtosPhase >= 4 ? 'bg-emerald-500/30 text-emerald-200 border-emerald-400 font-bold' : 'bg-emerald-500/10 text-emerald-400/50 border-emerald-500/20'
+                          }`}>
+                            R7, R6, R5, R4 (Desapilados)
+                          </div>
+                          <div className="text-[10px] text-emerald-400 pt-1 text-center font-bold">
+                            {rtosPhase === 5 ? '▲ PSP_B = 0x20002100 (En Ejecución)' : '▲ PSP_B = 0x200020A0'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ===================================================================
+                SUBSTATION 2: CAN BUS 2.0B BITWISE ARBITRATION SIMULATOR
+                =================================================================== */}
+            {lab10Substation === 'can' && (
+              <div className="space-y-6">
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 sm:p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h4 className="text-sm font-bold text-cyan-300 font-mono flex items-center gap-2">
+                      <Radio className="w-4 h-4" /> Arbitraje Bit a Bit sin Colisión Destructiva en Bus CAN 2.0B
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCanBitIdx((b) => Math.max(0, b - 1))}
+                        disabled={canBitIdx === 0}
+                        className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-30 border border-slate-700 text-slate-200 text-xs font-mono rounded"
+                      >
+                        ◄ Bit Previo
+                      </button>
+                      <button
+                        onClick={() => setCanBitIdx((b) => Math.min(10, b + 1))}
+                        disabled={canBitIdx === 10}
+                        className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 text-slate-950 font-bold text-xs font-mono rounded"
+                      >
+                        Siguiente Bit ({canBitIdx + 1}/11) ►
+                      </button>
+                      <button
+                        onClick={() => setCanBitIdx(0)}
+                        className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-400 text-xs font-mono rounded"
+                      >
+                        Reiniciar
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+                    En el bus diferencial CAN, el estado <strong>0 es DOMINANTE</strong> (activa los transistores) y el estado <strong>1 es RECESIVO</strong> (resistencia pasiva). Cuando dos nodos transmiten simultáneamente, el nodo que envía un 1 mientras el otro envía un 0 lee un 0 en su pin receptor, detecta que ha perdido el arbitraje y se silencia al microsegundo sin destruir la trama de mayor prioridad.
+                  </p>
+
+                  {/* Nodes & IDs Selector */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
+                      <div className="flex justify-between items-center text-xs font-mono mb-1">
+                        <span className="font-bold text-rose-300">NODO 1: Freno de Emergencia</span>
+                        <span className="text-cyan-300">ID: 0x012 (0b00000010010)</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        Prioridad Alta (ID numéricamente menor).
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
+                      <div className="flex justify-between items-center text-xs font-mono mb-1">
+                        <span className="font-bold text-amber-300">NODO 2: Sensor Telemetría</span>
+                        <span className="text-cyan-300">ID: 0x018 (0b00000011000)</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        Prioridad Menor (Colisiona en el bit ID.3).
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 11-Bit Identifier Comparison Track */}
+                  <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-lg space-y-3 mb-4">
+                    <div className="text-xs font-mono font-bold text-slate-300">
+                      Progreso de Transmisión del Identificador (Bit 10 al Bit 0):
+                    </div>
+                    
+                    <div className="grid grid-cols-11 gap-1 text-center font-mono text-xs">
+                      {Array.from({ length: 11 }).map((_, idx) => {
+                        const isCurrent = idx === canBitIdx;
+                        const isPast = idx < canBitIdx;
+                        const isCollision = idx === collisionBit;
+                        return (
+                          <div
+                            key={idx}
+                            className={`p-1.5 rounded border transition-all ${
+                              isCurrent
+                                ? 'bg-cyan-500/30 border-cyan-400 text-white font-bold scale-105'
+                                : isCollision
+                                ? 'bg-rose-500/20 border-rose-500/60 text-rose-300'
+                                : isPast
+                                ? 'bg-slate-950 border-slate-800 text-slate-300'
+                                : 'bg-slate-950/40 border-slate-900 text-slate-600'
+                            }`}
+                          >
+                            <div className="text-[9px] text-slate-400">ID.{10 - idx}</div>
+                            <div className="text-xs font-bold">N1: {node1Bits[idx]}</div>
+                            <div className="text-xs font-bold">N2: {node2Bits[idx]}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Real-time Bus Physical State at current bit */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-1">
+                      <div className="text-[11px] font-mono text-slate-400">Transmisión Nodo 1:</div>
+                      <div className="text-base font-bold font-mono text-rose-300">
+                        Bit = {node1BitAtIdx} ({node1BitAtIdx === 0 ? 'DOMINANTE' : 'RECESIVO'})
+                      </div>
+                      <div className="text-xs text-emerald-400 font-mono">
+                        Estado: TX Activo • RX = {busBitAtIdx} (Coincide)
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-1">
+                      <div className="text-[11px] font-mono text-slate-400">Transmisión Nodo 2:</div>
+                      <div className="text-base font-bold font-mono text-amber-300">
+                        Bit = {node2BitAtIdx} ({node2BitAtIdx === 0 ? 'DOMINANTE' : 'RECESIVO'})
+                      </div>
+                      <div className={`text-xs font-mono font-bold ${
+                        node2Lost ? 'text-rose-400' : 'text-emerald-400'
+                      }`}>
+                        {node2Lost ? '¡ARBITRAJE PERDIDO! Conmuta a RX' : 'Estado: TX Activo • RX = TX'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-black border border-cyan-500/40 rounded-lg space-y-1">
+                      <div className="text-[11px] font-mono text-cyan-400">Línea Física del Bus (Wired-AND):</div>
+                      <div className="text-base font-bold font-mono text-cyan-200">
+                        Bus = {busBitAtIdx} ({busBitAtIdx === 0 ? 'DOMINANTE (0)' : 'RECESIVO (1)'})
+                      </div>
+                      <div className="text-xs text-slate-300 font-mono">
+                        Tensiones: CAN_H = {busBitAtIdx === 0 ? '3.5V' : '2.5V'} • CAN_L = {busBitAtIdx === 0 ? '1.5V' : '2.5V'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ===================================================================
+                SUBSTATION 3: DISCRETE FIXED-POINT PID WITH ANTI-WINDUP
+                =================================================================== */}
+            {lab10Substation === 'pid' && (
+              <div className="space-y-6">
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 sm:p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h4 className="text-sm font-bold text-amber-300 font-mono flex items-center gap-2">
+                      <Sliders className="w-4 h-4" /> Control PID Digital en Punto Fijo & Protección Anti-Windup
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setPidAntiWindup(!pidAntiWindup)}
+                        className={`px-3 py-1 rounded text-xs font-mono font-bold border transition-all ${
+                          pidAntiWindup
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                            : 'bg-rose-500/20 text-rose-300 border-rose-500/50'
+                        }`}
+                      >
+                        Anti-Windup: {pidAntiWindup ? 'ACTIVO (Seguro)' : 'DESACTIVADO (Peligro Windup)'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+                    En actuadores industriales con límites físicos (ej. PWM del 0% al 100%), si la planta tarda en responder, el acumulador integral <code>I[k]</code> crece sin límite (<strong>Windup</strong>). Cuando la velocidad alcanza el setpoint, el motor no puede frenar a tiempo y sufre un <strong>overshoot masivo</strong>. Con Anti-Windup (Clamping), la saturación de la integral previene este fallo.
+                  </p>
+
+                  {/* Sliders for PID Gains */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-1">
+                      <div className="flex justify-between text-xs font-mono">
+                        <span className="text-cyan-300 font-bold">Kp (Ganancia Proporcional):</span>
+                        <span className="text-slate-100">{pidKp}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        value={pidKp}
+                        onChange={(e) => setPidKp(Number(e.target.value))}
+                        className="w-full accent-cyan-400"
+                      />
+                    </div>
+
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-1">
+                      <div className="flex justify-between text-xs font-mono">
+                        <span className="text-emerald-300 font-bold">Ki (Ganancia Integral):</span>
+                        <span className="text-slate-100">{pidKi}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="6"
+                        value={pidKi}
+                        onChange={(e) => setPidKi(Number(e.target.value))}
+                        className="w-full accent-emerald-400"
+                      />
+                    </div>
+
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-1">
+                      <div className="flex justify-between text-xs font-mono">
+                        <span className="text-amber-300 font-bold">Kd (Ganancia Derivativa):</span>
+                        <span className="text-slate-100">{pidKd}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="5"
+                        value={pidKd}
+                        onChange={(e) => setPidKd(Number(e.target.value))}
+                        className="w-full accent-amber-400"
+                      />
+                    </div>
+                  </div>
+
+                  {/* PID Transient Curve & Numerical Breakdown */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    {/* Visual Bar Graph */}
+                    <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-lg p-3.5 space-y-3">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="font-bold text-slate-300">Respuesta de la Planta (RPM vs Pasos de Tiempo):</span>
+                        <span className="text-cyan-300 font-bold">Setpoint = {targetRpm} RPM</span>
+                      </div>
+
+                      <div className="space-y-1.5 pt-2">
+                        {pidHistory.map((pt) => {
+                          const percent = Math.min(100, Math.round((pt.currentRpm / 1500) * 100));
+                          const isClamped = pt.clamped;
+                          return (
+                            <div key={pt.step} className="flex items-center gap-2 text-[11px] font-mono">
+                              <span className="w-8 text-slate-400 shrink-0">t={pt.step}:</span>
+                              <div className="flex-1 bg-black h-5 rounded overflow-hidden border border-slate-800 relative">
+                                <div
+                                  className={`h-full transition-all ${
+                                    pt.currentRpm > targetRpm + 100
+                                      ? 'bg-rose-500'
+                                      : pt.currentRpm >= targetRpm - 50
+                                      ? 'bg-emerald-500'
+                                      : 'bg-cyan-500'
+                                  }`}
+                                  style={{ width: `${percent}%` }}
+                                />
+                                {/* Setpoint Marker line at ~80% */}
+                                <div
+                                  className="absolute top-0 bottom-0 w-0.5 bg-amber-400 z-10"
+                                  style={{ left: `${Math.round((targetRpm / 1500) * 100)}%` }}
+                                />
+                              </div>
+                              <span className="w-16 text-right font-bold text-slate-200 shrink-0">
+                                {pt.currentRpm} RPM
+                              </span>
+                              {isClamped && (
+                                <span className="text-[9px] px-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded shrink-0">
+                                  CLAMP
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Breakdown of Current Selected Cycle */}
+                    <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-lg p-3.5 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="text-xs font-bold uppercase text-amber-300 font-mono">
+                          Términos de Control en Punto Fijo
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          Paso t={activePidPoint.step}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2 text-xs font-mono">
+                        <div className="flex justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400">Error e[k] = Target - Real:</span>
+                          <span className="text-white font-bold">{activePidPoint.error} RPM</span>
+                        </div>
+                        <div className="flex justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-cyan-300">Término Proporcional (P):</span>
+                          <span className="font-bold text-cyan-200">+{activePidPoint.pTerm}</span>
+                        </div>
+                        <div className="flex justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-emerald-300">Término Integral Acumulado (I):</span>
+                          <span className="font-bold text-emerald-200">+{activePidPoint.iTerm}</span>
+                        </div>
+                        <div className="flex justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-amber-300">Término Derivativo (D):</span>
+                          <span className="font-bold text-amber-200">{activePidPoint.dTerm}</span>
+                        </div>
+                        <div className="flex justify-between p-2 rounded bg-black border border-emerald-500/50">
+                          <span className="text-emerald-400 font-bold">Salida Actuador u[k]:</span>
+                          <span className="font-bold text-emerald-300">{activePidPoint.outputPercent}% PWM</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-slate-400 leading-tight pt-1">
+                        {!pidAntiWindup && activePidPoint.iTerm > 300 ? (
+                          <span className="text-rose-400 font-semibold">
+                            ⚠️ Alerta de Integración: El término integral está saturando el cálculo porque el actuador ya alcanzó su 100% de PWM. Activa Anti-Windup para evitar que se desborde.
+                          </span>
+                        ) : (
+                          <span className="text-emerald-400">
+                            ✓ Comportamiento estable: Las ganancias operan dentro del rango acotado del actuador físico.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ===================================================================
+                SUBSTATION 4: CORTEX-M HARDFAULT FORENSICS & SCB REGISTERS DECODER
+                =================================================================== */}
+            {lab10Substation === 'fault' && (
+              <div className="space-y-6">
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 sm:p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <h4 className="text-sm font-bold text-rose-300 font-mono flex items-center gap-2">
+                      <Bug className="w-4 h-4" /> Decodificador Forense de HardFault (SCB-&gt;CFSR, BFAR & MMAR)
+                    </h4>
+                  </div>
+
+                  <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+                    Cuando un microcontrolador Cortex-M o RISC-V entra en pánico y salta al <code>HardFault_Handler</code>, el ingeniero de sistemas críticos no usa <code>printf()</code>: extrae los registros de estado del sistema (<strong>SCB-&gt;CFSR</strong>) y la dirección que causó el fallo en el bus (<strong>BFAR</strong>) para resolver la causa raíz en segundos.
+                  </p>
+
+                  {/* Incident Presets */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+                    {[
+                      { id: 'null-ptr' as const, label: 'Puntero NULL', badge: 'BFSR.PRECISERR' },
+                      { id: 'div-zero' as const, label: 'División por Cero', badge: 'UFSR.DIVBYZERO' },
+                      { id: 'mpu-violation' as const, label: 'Violación MPU', badge: 'MMFSR.IACCVIOL' },
+                      { id: 'unaligned' as const, label: 'Acceso Desalineado', badge: 'UFSR.UNALIGNED' }
+                    ].map((btn) => (
+                      <button
+                        key={btn.id}
+                        onClick={() => setFaultPreset(btn.id)}
+                        className={`p-2.5 rounded border text-left transition-all ${
+                          faultPreset === btn.id
+                            ? 'bg-rose-500/20 border-rose-400 text-rose-200 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-xs font-semibold">{btn.label}</div>
+                        <div className="text-[10px] font-mono text-cyan-300">{btn.badge}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Register Analysis Cards */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    {/* Registers Hex Values & Bit breakdown */}
+                    <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-lg p-3.5 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="text-xs font-bold uppercase text-cyan-300 font-mono">
+                          Registros SCB Leídos en HardFault
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800">
+                          CRITICAL EXCEPTION
+                        </span>
+                      </div>
+
+                      <div className="space-y-2 text-xs font-mono">
+                        <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">SCB-&gt;CFSR (0xE000ED28):</span>
+                          <span className="text-rose-300 font-bold text-sm">
+                            0x{cfsrVal.toString(16).padStart(8, '0').toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">SCB-&gt;BFAR (Bus Fault Address):</span>
+                          <span className="text-amber-300 font-bold text-sm">
+                            0x{bfarVal.toString(16).padStart(8, '0').toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                          <span className="text-slate-400 block text-[10px]">SCB-&gt;MMFAR (MemManage Address):</span>
+                          <span className="text-purple-300 font-bold text-sm">
+                            0x{mmfVal.toString(16).padStart(8, '0').toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800">
+                        <div className="text-[10px] font-mono text-slate-400 mb-1">Estructura del registro CFSR (32 bits):</div>
+                        <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-center">
+                          <div className={`p-1 rounded border ${
+                            (cfsrVal & 0xFFFF0000) !== 0
+                              ? 'bg-rose-500/25 border-rose-400 text-rose-200 font-bold'
+                              : 'bg-slate-950 border-slate-800 text-slate-500'
+                          }`}>
+                            UFSR [31..16]
+                          </div>
+                          <div className={`p-1 rounded border ${
+                            (cfsrVal & 0x0000FF00) !== 0
+                              ? 'bg-rose-500/25 border-rose-400 text-rose-200 font-bold'
+                              : 'bg-slate-950 border-slate-800 text-slate-500'
+                          }`}>
+                            BFSR [15..8]
+                          </div>
+                          <div className={`p-1 rounded border ${
+                            (cfsrVal & 0x000000FF) !== 0
+                              ? 'bg-rose-500/25 border-rose-400 text-rose-200 font-bold'
+                              : 'bg-slate-950 border-slate-800 text-slate-500'
+                          }`}>
+                            MMFSR [7..0]
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detailed Technical Diagnosis */}
+                    <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-rose-400 uppercase">
+                          Diagnóstico Forense de la CPU
+                        </span>
+                        <h5 className="text-sm font-bold text-slate-100 font-mono mt-0.5">{faultTitle}</h5>
+                      </div>
+
+                      <p className="text-xs text-slate-300 leading-relaxed">{faultDesc}</p>
+
+                      <div className="p-2.5 rounded bg-black border border-slate-800 space-y-1">
+                        <div className="text-[10px] font-mono text-amber-300">Instrucción culpable extraída del Stack Frame:</div>
+                        <pre className="text-xs font-mono text-emerald-400 overflow-x-auto">{faultAsm}</pre>
+                      </div>
+
+                      <div className="p-2.5 rounded bg-emerald-950/30 border border-emerald-500/30 space-y-1">
+                        <div className="text-[10px] font-mono text-emerald-300 font-bold">Solución Definitiva en Producción:</div>
+                        <div className="text-xs text-slate-200 leading-normal">{faultFix}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}

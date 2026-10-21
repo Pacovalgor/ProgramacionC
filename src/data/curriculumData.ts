@@ -31,7 +31,8 @@ export type LabViewType =
   | 'logic-analyzer'
   | 'peripherals-adc-wdg'
   | 'multi-file-toolchain'
-  | 'space-defense-ecss';
+  | 'space-defense-ecss'
+  | 'senior-rtos-can-pid-fault';
 
 /**
  * Código C específico de un microcontrolador en los 3 niveles de abstracción industriales,
@@ -2823,6 +2824,1202 @@ void ecss_unit_test_boundary_thruster_temp(void) {
           label: 'Basta con añadir un comentario en el código pidiendo a los programadores de la cámara que tengan cuidado con los punteros.',
           isCorrect: false,
           feedback: 'Para mantener categorías separadas en el mismo procesador es obligatorio demostrar particionado temporal y espacial por hardware (MPU/MMU e hipervisor certificado como TSP / ARINC 653).'
+        }
+      ]
+    }
+  },
+
+  // =========================================================================
+  // MÓDULO 12: RTOS (FREERTOS / ZEPHYR / RTEMS) A NIVEL DE SILICIO
+  // =========================================================================
+  {
+    id: 12,
+    slug: 'rtos-freertos-zephyr-cambio-contexto-mutex-colas',
+    title: 'Módulo 12: Sistemas Operativos de Tiempo Real (RTOS: FreeRTOS / Zephyr / RTEMS)',
+    subtitle: 'Cómo funciona un Cambio de Contexto en ensamblador (PendSV / SysTick), el Bloque de Control de Tarea (TCB), la Inversión de Prioridad y la sincronización segura con Mutex, Semáforos y Colas Estáticas',
+    level: 'Experto Industrial',
+    duration: '120 min',
+    recommendedLab: 'senior-rtos-can-pid-fault',
+    superficialMyth:
+      'En cursos superficiales enseñan un RTOS como si el microcontrolador tuviera "varios procesadores mágicos" ejecutando varios bucles while(1) al mismo tiempo, y usan xTaskCreate() con malloc dinámico sin preocuparse del Stack.',
+    overwhelmingDatasheet:
+      'El manual de arquitectura ARMv7-M y la documentación de FreeRTOS/RTEMS hablan de "PSP vs MSP Stack Pointers, PendSV Exception Tail-Chaining, TCB_t pxTopOfStack, Priority Inheritance Protocol (PIP), Priority Ceiling y xTaskCreateStatic".',
+    theBridgeExplanation:
+      'Un microcontrolador de un solo núcleo solo puede ejecutar UNA instrucción en cada ciclo de reloj. ¿Cómo logra entonces un RTOS que parezca que 5 tareas corren a la vez? Mediante un truco brillante de Pila (Stack) y Punteros: cada tarea tiene su propio array de pila privado en SRAM y una estructura TCB (Task Control Block) que guarda dónde se quedó su puntero de pila (pxTopOfStack). Cuando salta el reloj SysTick (ej. cada 1 ms) o una tarea se duerme esperando un sensor, se dispara la interrupción de mínima prioridad PendSV: el código guarda los registros actuales de la CPU (R4..R11) en la pila de la Tarea A, cambia el registro PSP (Process Stack Pointer) de la CPU para que apunte a la pila de la Tarea B, restaura los registros R4..R11 de la Tarea B y retorna. ¡Al retornar de la interrupción, la CPU aterriza mágicamente en medio del código de la Tarea B!',
+    keyTakeaways: [
+      {
+        title: '1. Anatomía del Cambio de Contexto (Stack Frame Hardware + Software)',
+        concept: 'En ARM Cortex-M, al entrar a una interrupción el hardware apila automáticamente 8 registros (R0, R1, R2, R3, R12, LR, PC, xPSR). La rutina PendSV_Handler del RTOS solo tiene que empujar por software los otros 8 registros (R4..R11) en la pila de la tarea saliente, guardar el puntero PSP en current_tcb->sp, cargar el PSP desde next_tcb->sp y desapilar R4..R11.',
+        codeSnippet: `// Estructura real de un Bloque de Control de Tarea (TCB) en C:\ntypedef struct tcb_node {\n    uint32_t        *pxTopOfStack; // ¡SIEMPRE el primer campo (offset 0) para acceso desde ASM!\n    uint32_t         priority;     // Prioridad de la tarea (mayor número = más urgente)\n    uint32_t         state;        // READY, RUNNING, BLOCKED\n} tcb_t;`
+      },
+      {
+        title: '2. Inversión de Prioridad (El Bug del Mars Pathfinder 1997) y Mutex con Herencia',
+        concept: 'Si una Tarea Baja (Prio 1) toma un recurso compartido (ej. bus I2C) con un simple semáforo binario y despierta una Tarea Alta (Prio 3) que necesita el I2C, la Tarea Alta se bloquea. Si en ese instante entra una Tarea Media (Prio 2) que no usa el I2C, ¡preempta a la Tarea Baja e impide indirectamente que la Tarea Alta se ejecute! La solución es usar un Mutex con Priority Inheritance: el RTOS eleva temporalmente la Tarea Baja a Prioridad 3 hasta que suelte el Mutex.',
+        codeSnippet: `// Regla de Oro RTOS: Para proteger un periférico compartido (I2C/SPI) usa SIEMPRE Mutex\n// (que tiene Dueño y Herencia de Prioridad), NUNCA un Semáforo Binario.\nxSemaphoreTake(i2c_bus_mutex, portMAX_DELAY);\ni2c_read_imu_frame(&imu_data);\nxSemaphoreGive(i2c_bus_mutex);`
+      },
+      {
+        title: '3. Asignación 100% Estática en RTOS Críticos (Cero Heap / Cero Fragmentación)',
+        concept: 'Bajo MISRA-C, NASA JPL y ECSS Cat A/B, usar xTaskCreate() (que llama a pvPortMalloc internamente) está prohibido tras el arranque. Los RTOS profesionales permiten declarar la pila (StackType_t[]) y el TCB (StaticTask_t) como arrays estáticos globales en SRAM (.bss) usando xTaskCreateStatic().',
+        codeSnippet: `static StackType_t  s_telemetry_stack[512]; // Pila fija de 2048 bytes en .bss\nstatic StaticTask_t s_telemetry_tcb;        // TCB estático sin usar Heap\n\nxTaskCreateStatic(vTelemetryTask, "TLM", 512U, NULL, 3U, s_telemetry_stack, &s_telemetry_tcb);`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Planificador Cooperativo / Corrutinas Ligeras sin gasto de RAM de 32 registros
+// En AVR (solo 2 KB de SRAM), apilar los 32 registros (R0..R31 + SREG + PC = 35 bytes por tarea)
+// consume mucha RAM. La técnica bare-metal clásica usa una tabla de tareas con Tick de Timer0:
+#include <stdint.h>
+
+typedef struct {
+    void (*task_fn)(void);
+    uint16_t period_ticks;
+    uint16_t last_run;
+} avr_rtos_task_t;
+
+volatile uint16_t g_avr_tick_ms = 0U;
+
+void avr_scheduler_step(avr_rtos_task_t *tasks, uint8_t count) {
+    uint16_t now = g_avr_tick_ms;
+    for (uint8_t i = 0U; i < count; i++) {
+        if ((uint16_t)(now - tasks[i].last_run) >= tasks[i].period_ticks) {
+            tasks[i].last_run = now;
+            tasks[i].task_fn();
+        }
+    }
+}`,
+        cmsisStruct: `// En FreeRTOS para AVR (port.c), el cambio de contexto guarda R0..R31 y SREG
+// y escribe los registros físicos SPL (0x3D) y SPH (0x3E) del Stack Pointer:
+#include <avr/io.h>
+
+static inline void avr_switch_stack_pointer(uint16_t new_sp_addr) {
+    uint8_t sreg_backup = SREG;
+    __builtin_avr_cli();
+    SPL = (uint8_t)(new_sp_addr & 0xFFU);
+    SPH = (uint8_t)((new_sp_addr >> 8) & 0xFFU);
+    SREG = sreg_backup;
+}`,
+        proDriver: `// En microcontroladores de 8 bits con <= 2 KB de RAM, un planificador cooperativo
+// determinista o Protothreads suele ser más seguro que un RTOS preemptivo pesado.`,
+        asmInsight: 'Un cambio de contexto completo en AVR ejecuta 32 instrucciones PUSH + IN SREG + 32 instrucciones POP + RETI (~140 ciclos de reloj).',
+        hardwareNote: 'Al cambiar el Stack Pointer de 16 bits en AVR (SPL y SPH), es obligatorio deshabilitar interrupciones entre ambas escrituras.'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401 (ARM Cortex-M4F): Disparo del Cambio de Contexto en SCB->ICSR (Bit 28: PENDSVSET)
+// Dirección de SCB->ICSR (Interrupt Control and State Register): 0xE000ED04
+#define SCB_ICSR_REG   (*(volatile uint32_t *)0xE000ED04UL)
+#define PENDSVSET_BIT  (1UL << 28)
+
+// Cuando SysTick o vTaskDelay() decide cambiar de tarea, NO hace el cambio dentro de SysTick;
+// levanta el bit PENDSVSET para que PendSV (prioridad mínima 0xFF) haga el cambio al terminar todas las ISRs:
+static inline void rtos_trigger_context_switch(void) {
+    SCB_ICSR_REG = PENDSVSET_BIT; // Solicita excepción PendSV asíncrona
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+// Inicialización del Stack Frame falso para una tarea nueva en Cortex-M:
+uint32_t *rtos_init_task_stack(uint32_t *stack_top, void (*task_entry)(void *), void *arg) {
+    stack_top--; *stack_top = 0x01000000UL;          // xPSR (Bit 24 Thumb = 1 obligatorio!)
+    stack_top--; *stack_top = (uint32_t)task_entry;  // PC (Punto de entrada de la tarea)
+    stack_top--; *stack_top = 0xFFFFFFFDUL;          // LR (EXC_RETURN: volver a modo Thread con PSP)
+    stack_top -= 5;                                  // R12, R3, R2, R1 = 0
+    *stack_top = (uint32_t)arg;                      // R0 (Primer argumento pvParameters)
+    stack_top -= 8;                                  // R11, R10, R9, R8, R7, R6, R5, R4 = 0
+    return stack_top;                                // Nuevo pxTopOfStack guardado en el TCB
+}`,
+        proDriver: `// Diseño de Tarea Periódica de Control Exacto sin Deriva Temporal (vTaskDelayUntil):
+// NUNCA uses vTaskDelay(10) para un lazo de control, porque suma 10 ms al instante en que
+// termina tu código (acumulando jitter). Usa siempre vTaskDelayUntil(&xLastWakeTime, 10):
+void vControlLoopTask(void *pvParameters) {
+    (void)pvParameters;
+    uint32_t xLastWakeTime = rtos_get_tick_count();
+    for (;;) {
+        ejecutar_control_pid_100hz();
+        rtos_delay_until(&xLastWakeTime, 10U); // Despierta en t = 10, 20, 30, 40 ms exactos!
+    }
+}`,
+        asmInsight: 'En Cortex-M4F, PendSV ejecuta: MRS R0, PSP -> STMDB R0!, {R4-R11} -> STR R0, [R1] -> LDR R0, [R2] -> LDMIA R0!, {R4-R11} -> MSR PSP, R0 -> BX LR.',
+        hardwareNote: 'Si la tarea usa la FPU (float), el procesador activa Lazy Stacking (bit FPCA en CONTROL) apilando S0..S31 bajo demanda.'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3 (RISC-V): Interrupción Software de Cambio de Contexto en el periférico SYSTEM
+// En RISC-V sin PendSV de ARM, FreeRTOS dispara una interrupción software dedicada (CPU_INTR_FROM_CPU_0):
+#define SYSTEM_CPU_INTR_FROM_CPU_0_REG (*(volatile uint32_t *)0x600C0028UL)
+
+static inline void riscv_rtos_yield_core0(void) {
+    SYSTEM_CPU_INTR_FROM_CPU_0_REG = 1UL; // Dispara ISR de cambio de contexto en RISC-V
+}`,
+        cmsisStruct: `// En ESP-IDF (que integra FreeRTOS de serie en la ROM/Flash), la cola estática sin malloc
+// es el mecanismo canónico para enviar eventos desde una ISR hacia una Tarea:
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef struct {
+    uint32_t sensor_id;
+    uint32_t raw_value;
+} sensor_msg_t;
+
+// Dentro de la ISR usamos SIEMPRE la variante terminada en "FromISR":
+// xQueueSendFromISR(q_handle, &msg, &xHigherPriorityTaskWoken);
+// portYIELD_FROM_ISR(xHigherPriorityTaskWoken);`,
+        proDriver: `// Regla crítica en FreeRTOS / ESP-IDF: Jamás llames a xQueueSend() o printf() normal
+// dentro de una ISR. Usa exclusivamente las APIs terminadas en "...FromISR()".`,
+        asmInsight: 'En RISC-V RV32IMC, el cambio de contexto guarda los 28 registros de propósito general (x1, x5..x31) más mepc y mstatus en el marco de pila de la tarea.',
+        hardwareNote: 'El ESP32-C3 incluye registros hardware de guarda de pila (Assist-Debug SP Monitor) que lanzan una excepción instantánea antes de que una tarea desborde su Stack.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840 (Zephyr RTOS / FreeRTOS Tickless Idle con RTC1 a 32.768 kHz):
+// En dispositivos a batería (BLE), mantener SysTick despertando la CPU 1000 veces por segundo
+// arruina la batería. Los RTOS en Nordic usan RTC1 en modo "Tickless Idle":
+#define RTC1_TASKS_START  (*(volatile uint32_t *)0x40011000UL)
+#define RTC1_CC0_REG      (*(volatile uint32_t *)0x40011540UL)
+
+void nrf_rtos_program_next_wakeup_ticks(uint32_t sleep_rtc_ticks) {
+    RTC1_CC0_REG = sleep_rtc_ticks & 0x00FFFFFFUL; // Programa comparador de 24 bits del RTC1
+    RTC1_TASKS_START = 1UL;
+}`,
+        cmsisStruct: `// En nRF Connect SDK (basado en Zephyr RTOS), los hilos y colas se declaran
+// en tiempo de compilación mediante macros estáticas que reservan memoria en el Linker:
+/*
+K_THREAD_DEFINE(sensor_tid, 1024, sensor_thread_fn, NULL, NULL, NULL, 5, 0, 0);
+K_MSGQ_DEFINE(adc_msgq, sizeof(uint16_t), 16, 4);
+*/`,
+        proDriver: `// Modo Tickless Idle en RTOS: Si la próxima tarea no tiene que ejecutarse hasta dentro
+// de 500 ms, el RTOS apaga el SysTick, programa el RTC para dentro de 500 ms y duerme la CPU.`,
+        asmInsight: 'Con Tickless Idle sobre RTC1, la CPU del nRF52840 pasa el 99.8% del tiempo dormida consumiendo ~1.9 uA con toda la RAM retenida.',
+        hardwareNote: 'El SysTick del Cortex-M4 se detiene cuando el reloj HFCLK se apaga en modo Sleep profundo; por eso el RTOS en nRF52 usa el periférico RTC1 (LFCLK 32.768 kHz).'
+      },
+      rp2040: {
+        rawPointer: `// RP2040 (FreeRTOS SMP Multicore): Sincronización entre Core 0 y Core 1 con Spinlocks Hardware
+// Dirección de SIO_SPINLOCK0: 0xD0000100 (32 Spinlocks físicos en silicio)
+#define SIO_SPINLOCK0 (*(volatile uint32_t *)0xD0000100UL)
+
+// Leer SIO_SPINLOCK0 intenta reclamar el candado atómicamente en 1 ciclo:
+// Devuelve != 0 si lo lograste adquirir; devuelve 0 si el otro núcleo ya lo tiene tomado:
+static inline void rp2040_rtos_acquire_spinlock0(void) {
+    while (SIO_SPINLOCK0 == 0UL) { /* Espera activa de pocos ciclos entre núcleos */ }
+}
+
+static inline void rp2040_rtos_release_spinlock0(void) {
+    SIO_SPINLOCK0 = 1UL; // Escribir cualquier valor libera el Spinlock hardware
+}`,
+        cmsisStruct: `#include "hardware/structs/sio.h"
+
+// Además de Spinlocks, el RP2040 incluye 2 colas FIFO hardware entre núcleos (8 palabras de 32 bits):
+void rp2040_notify_other_core(uint32_t event_code) {
+    while ((sio_hw->fifo_st & SIO_FIFO_ST_RDY_BITS) == 0UL) { }
+    sio_hw->fifo_wr = event_code;
+    __asm volatile ("sev"); // Send Event: despierta al otro núcleo si estaba en WFE!
+}`,
+        proDriver: `// En un MCU Dual-Core como el RP2040, deshabilitar interrupciones (__disable_irq) en el Core 0
+// NO impide que el Core 1 modifique la misma estructura en RAM. Hace falta un Spinlock hardware.`,
+        asmInsight: 'El periférico SIO del RP2040 arbitra el acceso a los 32 registros SPINLOCK en 1 solo ciclo de reloj sin instrucciones LDREX/STREX.',
+        hardwareNote: 'FreeRTOS SMP utiliza un Spinlock de SIO para proteger las listas internas del planificador cuando Core 0 y Core 1 cambian de tarea a la vez.'
+      }
+    },
+    challenge: {
+      question: 'Reto de Arquitectura RTOS — El Caso Real de Inversión de Prioridad (Mars Pathfinder)',
+      scenario:
+        'En tu firmware con RTOS tienes tres tareas: Tarea_Control (Prioridad 3, Alta), Tarea_Comunicaciones (Prioridad 2, Media) y Tarea_Log (Prioridad 1, Baja). Tarea_Log y Tarea_Control comparten el bus SPI protegidas por un Semáforo Binario simple (sin herencia de prioridad). En t=0, Tarea_Log toma el semáforo para escribir en la memoria Flash SPI. En t=1 ms, despierta Tarea_Control e intenta tomar el semáforo SPI, quedando bloqueada. En t=2 ms, despierta Tarea_Comunicaciones (que NO usa el bus SPI) y se pone a procesar paquetes durante 500 ms. ¿Qué ocurre en el sistema?',
+      options: [
+        {
+          id: 'a',
+          label: 'Se produce una Inversión de Prioridad no acotada: Tarea_Comunicaciones (Prio 2) preempta a Tarea_Log (Prio 1), impidiendo que Tarea_Log termine de usar el SPI y dejando congelada a Tarea_Control (Prio 3, la más crítica del sistema) hasta que salte el Watchdog.',
+          isCorrect: true,
+          feedback: '¡Diagnóstico digno del JPL de la NASA! Exactamente este fallo reiniciaba la sonda Mars Pathfinder en Marte en julio de 1997. Al sustituir el Semáforo Binario por un Mutex con Herencia de Prioridad (Priority Inheritance), en cuanto Tarea_Control (Prio 3) pide el Mutex, el RTOS sube temporalmente a Tarea_Log a Prioridad 3 para que Tarea_Comunicaciones (Prio 2) no pueda interrumpirla.'
+        },
+        {
+          id: 'b',
+          label: 'Tarea_Control (Prio 3) le arrebata el bus SPI a mitad de byte a Tarea_Log sin esperar al semáforo.',
+          isCorrect: false,
+          feedback: 'Si rompiera el bloqueo del semáforo corrompería la trama SPI en curso.'
+        },
+        {
+          id: 'c',
+          label: 'Un Semáforo Binario y un Mutex son 100% idénticos en un RTOS.',
+          isCorrect: false,
+          feedback: 'Un Semáforo Binario es para señalización (ej. una ISR despierta a una tarea) y no tiene concepto de "dueño" ni herencia de prioridad; un Mutex es para exclusión mutua y sí implementa Priority Inheritance.'
+        }
+      ]
+    }
+  },
+
+  // =========================================================================
+  // MÓDULO 13: BUSES INDUSTRIALES/ESPACIALES (CAN / SPACEWIRE) Y CRC HARDWARE
+  // =========================================================================
+  {
+    id: 13,
+    slug: 'buses-industriales-can-bus-spacewire-mil1553-crc-hardware',
+    title: 'Módulo 13: Buses Industriales y Aeroespaciales (CAN Bus / SpaceWire / MIL-STD-1553) y Cálculo de CRC',
+    subtitle: 'Cómo transmitir datos a través de metros de cable con ruido electromagnético extremo usando pares diferenciales, arbitraje no destructivo por ID y verificación polinómica CRC en C y en Silicio',
+    level: 'Experto Industrial',
+    duration: '120 min',
+    recommendedLab: 'senior-rtos-can-pid-fault',
+    superficialMyth:
+      'Quien solo ha usado UART o I2C en una protoboard cree que puede tirar dos cables de 5 metros junto a un motor trifásico o dentro de un coche/satélite y que los bytes llegarán intactos sumando los bytes con un simple checksum.',
+    overwhelmingDatasheet:
+      'Las especificaciones ISO 11898 (CAN) y ECSS-E-ST-50-12C (SpaceWire) hablan de "Differential Signaling CAN_H/CAN_L, Non-Destructive Bitwise Arbitration, Dominant (0) vs Recessive (1), Hardware Acceptance Filters/Masks, Bit Stuffing y Generador Polinómico CRC-15 / CRC-32".',
+    theBridgeExplanation:
+      'En UART o I2C el voltaje se mide respecto a tierra (GND). Si un motor cercano induce un pico de +2V en el cable de tierra, un 0 lógico parece un 1. El bus CAN resuelve esto usando un Par Diferencial trenzado (CAN_H y CAN_L): el receptor resta físicamente (V_CANH - V_CANL). Si el ruido electromagnético sube ambos cables +2V a la vez, ¡la resta sigue dando exactamente lo mismo! Además, en CAN no hay Maestro/Esclavo: todos los nodos escuchan el cable mientras transmiten su ID. El bit 0 ("Dominante") pisa eléctricamente al bit 1 ("Recesivo"). Si dos chips hablan a la vez, el que tenga el ID más bajo (más ceros al principio, mayor prioridad) gana el bus sin que se pierda ni un solo bit.',
+    keyTakeaways: [
+      {
+        title: '1. Arbitraje No Destructivo por Prioridad de ID en Bus CAN',
+        concept: 'En CAN (Estándar de 11 bits de ID o Extendido de 29 bits), el Identificador NO es la dirección del nodo destino, sino qué dato contiene el mensaje y su urgencia. Un bit 0 es Dominante (transistores activos, V_diff = 2V) y un bit 1 es Recesivo (bus en reposo por resistencias de 120 ohmios, V_diff = 0V). Por tanto, el ID 0x001 (Freno de Emergencia) gana siempre el bus frente al ID 0x7FF (Temperatura del Aire Acondicionado).',
+        codeSnippet: `// Estructura canónica de una Trama CAN 2.0A/2.0B (máximo 8 bytes de carga útil):\ntypedef struct {\n    uint32_t id;        // 11-bit Standard ID (0x000..0x7FF) -> Menor valor = Mayor prioridad!\n    uint8_t  dlc;       // Data Length Code (0..8 bytes)\n    uint8_t  data[8];   // Payload determinista de hasta 64 bits\n} can_frame_t;`
+      },
+      {
+        title: '2. Filtros de Aceptación y Máscaras en Hardware (Cero Carga de CPU)',
+        concept: 'En un coche o satélite circulan miles de tramas CAN por segundo. Si tu microcontrolador recibiera una interrupción por cada mensaje del bus, la CPU colapsaría. Los controladores CAN incluyen bancos de Filtros Hardware con dos registros: Filter_ID y Filter_Mask. Solo si ((ID_Recibido & Mask) == (Filter_ID & Mask)), el hardware guarda la trama en el FIFO y despierta a tu CPU.',
+        codeSnippet: `// Regla de Filtrado Hardware CAN en Silicio:\n// Bit de Máscara en 1 = "Este bit del ID DEBE coincidir obligatoriamente"\n// Bit de Máscara en 0 = "No importa (Don't Care)"\nbool can_hw_filter_match(uint16_t rx_id, uint16_t filter_id, uint16_t mask) {\n    return ((rx_id & mask) == (filter_id & mask));\n}`
+      },
+      {
+        title: '3. Verificación de Redundancia Cíclica (CRC) vs Checksum Simple',
+        concept: 'Un Checksum simple (sumar los bytes) falla estrepitosamente si un pico de ruido suma +1 a un byte y resta -1 al siguiente (la suma da igual). El algoritmo CRC trata toda tu trama como un número binario gigante y calcula el resto de dividirlo (con XOR sin acarreo) entre un polinomio generador (ej. 0x07 en CRC-8, 0x1021 en CRC-16-CCITT o 0x04C11DB7 en CRC-32). Muchos MCUs de 32 bits tienen un periférico CRC hardware que calcula 32 bits en 1 solo ciclo de reloj.',
+        codeSnippet: `// Cálculo de CRC-8 (Polinomio 0x07) bit a bit en C puro para tramas de sensores:\nuint8_t crc8_compute_byte(uint8_t crc, uint8_t data) {\n    crc ^= data;\n    for (uint8_t b = 0U; b < 8U; b++) {\n        crc = (crc & 0x80U) ? (uint8_t)((crc << 1U) ^ 0x07U) : (uint8_t)(crc << 1U);\n    }\n    return crc;\n}`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Controlador CAN externo MCP2515 por SPI + Cálculo de CRC-16-CCITT en C
+// Como el ATmega328P no tiene periférico CAN ni CRC interno, en la industria se conecta a un
+// controlador CAN MCP2515 por SPI y se calcula el CRC-16 usando instrucciones de rotación:
+#include <stdint.h>
+
+uint16_t avr_crc16_ccitt(const uint8_t *buf, uint16_t len) {
+    uint16_t crc = 0xFFFFU;
+    for (uint16_t i = 0U; i < len; i++) {
+        crc ^= (uint16_t)((uint16_t)buf[i] << 8U);
+        for (uint8_t b = 0U; b < 8U; b++) {
+            crc = (crc & 0x8000U) ? (uint16_t)((crc << 1U) ^ 0x1021U) : (uint16_t)(crc << 1U);
+        }
+    }
+    return crc;
+}`,
+        cmsisStruct: `#include <avr/io.h>
+#include <util/crc16.h> // Librería optimizada en ensamblador AVR para CRC
+
+uint16_t avr_fast_frame_crc(const uint8_t *data, uint8_t len) {
+    uint16_t crc = 0xFFFFU;
+    for (uint8_t i = 0U; i < len; i++) {
+        crc = _crc_ccitt_update(crc, data[i]); // ~17 ciclos de CPU por byte en ASM
+    }
+    return crc;
+}`,
+        proDriver: `// En buses industriales RS-485 (Modbus RTU) sobre el UART del ATmega328P, cada trama
+// termina obligatoriamente con 2 bytes de CRC-16 (polinomio 0xA001 reflejado).`,
+        asmInsight: 'La función _crc_ccitt_update de <util/crc16.h> usa la instrucción SWAP de nibbles del AVR para evitar el bucle de 8 iteraciones por bit.',
+        hardwareNote: 'Para conectar un microcontrolador al cable físico CAN_H/CAN_L siempre hace falta un chip Transceptor Diferencial externo (ej. TJA1050 / SN65HVD230).'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F4: Unidad Hardware de Cálculo CRC-32 en el Bus AHB1 (Dirección base 0x40023000)
+// ¡Calcula el CRC-32 (Polinomio Ethernet/Espacial 0x04C11DB7) de una palabra de 32 bits en 4 ciclos!
+#define RCC_AHB1ENR_REG (*(volatile uint32_t *)0x40023830UL)
+#define CRC_DR_REG      (*(volatile uint32_t *)0x40023000UL)
+#define CRC_CR_REG      (*(volatile uint32_t *)0x40023008UL)
+
+uint32_t stm32_hw_crc32_compute(const uint32_t *words, uint32_t count) {
+    RCC_AHB1ENR_REG |= (1UL << 12); // 1. Habilitar reloj del periférico CRC en AHB1
+    CRC_CR_REG       = (1UL << 0);  // 2. Bit RESET=1 -> Carga semilla inicial 0xFFFFFFFF
+    for (uint32_t i = 0UL; i < count; i++) {
+        CRC_DR_REG = words[i];      // 3. Escribir dato -> El silicio divide por 0x04C11DB7 al vuelo!
+    }
+    return CRC_DR_REG;              // 4. Leer CRC_DR devuelve el resto polinómico acumulado
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+// Empaquetado de un identificador CAN de 11 bits y solicitud de transmisión en un buzón bxCAN:
+uint32_t stm32_can_pack_tir_register(uint16_t std_id_11b) {
+    // En bxCAN de STM32, el Standard ID de 11 bits vive en los bits [31:21] de TI0R,
+    // y el bit 0 (TXRQ) solicita el envío al bus:
+    return ((uint32_t)(std_id_11b & 0x7FFU) << 21U) | (1UL << 0U);
+}`,
+        proDriver: `// En satélites (ECSS-E-ST-50-12C SpaceWire y ECSS-E-ST-70-41C PUS Telemetry),
+// cada paquete de telemetría lleva un campo PEC (Packet Error Control) de 16 bits (CRC-16-CCITT)
+// calculado al construir la trama y verificado antes de ejecutar cualquier telecomando.`,
+        asmInsight: 'Calcular el CRC-32 por software de 256 KB de Flash tarda ~18 millones de ciclos; con el periférico CRC hardware del STM32 tarda solo ~260.000 ciclos (68x más rápido).',
+        hardwareNote: 'Recuerda habilitar el bit 12 (CRCEN) en RCC->AHB1ENR antes de escribir en CRC->DR.'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3: Controlador TWAI Hardware Integrado (Two-Wire Automotive Interface = CAN 2.0B)
+// El ESP32-C3 tiene un controlador CAN 2.0B completo en silicio en la dirección 0x6002B000!
+#define TWAI_MODE_REG   (*(volatile uint32_t *)0x6002B000UL)
+#define TWAI_CMD_REG    (*(volatile uint32_t *)0x6002B004UL)
+#define TWAI_STATUS_REG (*(volatile uint32_t *)0x6002B008UL)
+
+void esp32c3_twai_request_tx(void) {
+    // Si el bit 2 de STATUS (Transmit Buffer Status) indica que el buzón está libre:
+    if ((TWAI_STATUS_REG & (1UL << 2)) != 0UL) {
+        TWAI_CMD_REG = (1UL << 0); // Bit 0: TX_REQ (Dispara arbitraje y transmisión CAN)
+    }
+}`,
+        cmsisStruct: `// Además, la ROM interna del ESP32-C3 incluye rutinas CRC-16 y CRC-32 grabadas en fábrica
+// que no ocupan ni 1 byte de tu memoria Flash:
+#include <stdint.h>
+extern uint32_t esp_rom_crc32_le(uint32_t crc, const uint8_t *buf, uint32_t len);`,
+        proDriver: `// El controlador TWAI del ESP32-C3 mantiene contadores hardware de errores (TEC y REC):
+// si un nodo falla repetidamente, pasa solo a estado "Error Passive" y luego "Bus-Off"
+// desconectándose automáticamente para no tumbar el bus del vehículo.`,
+        asmInsight: 'Las funciones esp_rom_crc32_le llaman a tablas precalculadas en la Mask ROM del chip (0x40000000).',
+        hardwareNote: 'Aunque el ESP32-C3 incluye el controlador lógico CAN (TWAI), debes conectar sus pines TX/RX a un transceptor físico de 3.3V como el SN65HVD230.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: Motor Hardware CRC de 24/16/8 bits integrado en el Periférico RADIO (0x40001000)
+#define RADIO_CRCCNF_REG  (*(volatile uint32_t *)0x40001534UL)
+#define RADIO_CRCPOLY_REG (*(volatile uint32_t *)0x40001538UL)
+#define RADIO_CRCINIT_REG (*(volatile uint32_t *)0x4000153CUL)
+#define RADIO_CRCSTATUS   (*(volatile uint32_t *)0x40001400UL)
+
+void nrf_radio_configure_hw_crc16(void) {
+    RADIO_CRCCNF_REG  = 2UL;        // Longitud de CRC = 2 bytes (16 bits)
+    RADIO_CRCPOLY_REG = 0x11021UL;  // Polinomio x^16 + x^12 + x^5 + 1 (CRC-16-CCITT)
+    RADIO_CRCINIT_REG = 0xFFFFUL;   // Semilla inicial 0xFFFF
+}`,
+        cmsisStruct: `#include "nrf.h"
+
+bool nrf_radio_last_packet_crc_ok(void) {
+    // El hardware comprueba el CRC al recibir el paquete por antena y actualiza CRCSTATUS:
+    return (NRF_RADIO->CRCSTATUS == 1UL);
+}`,
+        proDriver: `// En comunicaciones inalámbricas industriales (BLE / IEEE 802.15.4 / Propulsión),
+// jamás proceses un paquete recibido sin verificar primero que NRF_RADIO->CRCSTATUS == 1.`,
+        asmInsight: 'El LFSR (Linear Feedback Shift Register) del bloque RADIO calcula el CRC en serie a medida que cada bit entra por el demodulador de 2.4 GHz (0 ciclos de CPU).',
+        hardwareNote: 'El registro CRCPOLY en el nRF52840 permite programar cualquier polinomio generador de hasta 24 bits.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040: Sniffer Hardware de CRC-32 integrado en el Controlador DMA (0x50000400)
+// ¡El DMA del RP2040 tiene un calculador CRC-32/CRC-16 en silicio que espía los datos mientras los copia!
+#define DMA_SNIFF_CTRL (*(volatile uint32_t *)0x50000434UL)
+#define DMA_SNIFF_DATA (*(volatile uint32_t *)0x50000438UL)
+
+void rp2040_dma_enable_crc32_sniffer(uint32_t dma_channel) {
+    DMA_SNIFF_DATA = 0xFFFFFFFFUL; // Semilla inicial CRC-32
+    // Bit 0 (EN=1), Bits [4:1] = canal DMA a espiar, Bits [8:5] = 0 (Modo CRC-32 IEEE802.3):
+    DMA_SNIFF_CTRL = ((dma_channel & 0x0FUL) << 1U) | (1UL << 0U);
+}`,
+        cmsisStruct: `#include "hardware/structs/dma.h"
+
+uint32_t rp2040_read_dma_sniffed_crc(void) {
+    return dma_hw->sniff_data; // Resultado CRC calculado en 0 ciclos de CPU durante el DMA!
+}`,
+        proDriver: `// Además, gracias a las máquinas de estados PIO del RP2040, existen implementaciones
+// como "can2040" que convierten dos pines GPIO en un controlador CAN 2.0B completo a 1 Mbps.`,
+        asmInsight: 'Mientras un canal DMA copia una imagen de firmware de Flash a RAM, el Sniffer calcula su CRC-32 gratis en el mismo bus.',
+        hardwareNote: 'Solo un canal DMA a la vez puede usar el hardware Sniffer del RP2040, seleccionado mediante el campo DMACH en SNIFF_CTRL.'
+      }
+    },
+    challenge: {
+      question: 'Reto de Bus CAN — Colisión y Arbitraje Bit a Bit en el Cable',
+      scenario:
+        'En el bus CAN de un vehículo industrial o satélite, tres microcontroladores empiezan a transmitir una trama exactamente en el mismo microsegundo tras detectar el bus libre: el Nodo A transmite el ID 0x2A0 (0b01010100000), el Nodo B transmite el ID 0x150 (0b00101010000) y el Nodo C transmite el ID 0x140 (0b00101000000). Sabiendo que el bit 0 es Dominante y el bit 1 es Recesivo y que el ID se transmite MSB-first (del bit 10 al bit 0), ¿qué ocurre en el cable?',
+      options: [
+        {
+          id: 'a',
+          label: 'El Nodo C (ID 0x140) gana el arbitraje y termina de enviar su trama completa sin que se corrompa ni un solo bit; los Nodos A y B detectan que pusieron un 1 recesivo pero leyeron un 0 dominante en el bus, por lo que callan inmediatamente y reintentan cuando termine el Nodo C.',
+          isCorrect: true,
+          feedback: '¡Exacto! En el bit 9 el Nodo A pone un 1 mientras B y C ponen un 0 -> el Nodo A pierde y se retira. Los Nodos B (0x150) y C (0x140) empatan hasta el bit 4, donde B pone un 1 recesivo y C pone un 0 dominante -> el Nodo B se retira y el Nodo C gana limpiamente sin colisión destructiva.'
+        },
+        {
+          id: 'b',
+          label: 'Las tres tramas chocan, se destruyen eléctricamente y los tres nodos tienen que esperar un tiempo aleatorio como en Ethernet antiguo.',
+          isCorrect: false,
+          feedback: 'A diferencia de Ethernet CSMA/CD antiguo, el bus CAN utiliza CSMA/NBA (Non-Destructive Bitwise Arbitration): el mensaje más prioritario jamás se destruye ni se retrasa.'
+        },
+        {
+          id: 'c',
+          label: 'Gana el Nodo A porque 0x2A0 es el número más grande.',
+          isCorrect: false,
+          feedback: 'En el bus CAN el bit 0 es Dominante (gana al 1), por lo que cuanto MENOR es el número del ID, MAYOR es su prioridad.'
+        }
+      ]
+    }
+  },
+
+  // =========================================================================
+  // MÓDULO 14: ARITMÉTICA DE PUNTO FIJO (Q15/Q31) Y CONTROL PID DISCRETO
+  // =========================================================================
+  {
+    id: 14,
+    slug: 'aritmetica-punto-fijo-q15-q31-control-pid-discreto-anti-windup',
+    title: 'Módulo 14: Aritmética de Punto Fijo (Q15 / Q31) y Control PID Discreto en Tiempo Real',
+    subtitle: 'Cómo hacer matemáticas con decimales a velocidad de entero sin usar float (FPU) y cómo programar un controlador PID industrial con saturación y Anti-Windup',
+    level: 'Experto Industrial',
+    duration: '120 min',
+    recommendedLab: 'senior-rtos-can-pid-fault',
+    superficialMyth:
+      'El principiante declara variables float o double para cualquier cálculo con decimales, sin saber que en un chip sin FPU (ATmega328P, RP2040, ESP32-C3) cada multiplicación float invoca cientos de instrucciones de emulación software y en sistemas críticos el IEEE-754 puede producir NaN o Infinito.',
+    overwhelmingDatasheet:
+      'Los manuales de DSP y CMSIS-DSP hablan de "Fractional Fixed-Point Representation Q1.15 and Q1.31, MAC (Multiply-Accumulate), Saturation Arithmetic (__SSAT), Quantization Noise, Discrete Z-Transform y Integrator Anti-Windup Clamping".',
+    theBridgeExplanation:
+      'Imagina que quieres guardar "25.75 grados" pero tu CPU solo sabe operar con números enteros. Si acuerdas contigo mismo que tu variable entera guarda "centésimas de grado" (2575), ya estás usando Punto Fijo decimal. En ingeniería digital hacemos lo mismo pero en potencias de 2 (para poder multiplicar y dividir usando desplazamientos de bits << y >> de 1 ciclo): en el formato Q15 (sobre un int16_t), decidimos que el factor de escala es 2^15 = 32768. Así, 0.5 se guarda como el entero 16384, y -0.5 como -16384. ¡La ALU entera del chip suma y multiplica tus números decimales en 1 solo ciclo de reloj sin necesitar hardware de coma flotante!',
+    keyTakeaways: [
+      {
+        title: '1. Formato de Punto Fijo Q15 (int16_t) y Multiplicación con Desplazamiento (>> 15)',
+        concept: 'En Q15 (también llamado Q1.15), usamos un int16_t donde 1 bit es el signo y los otros 15 bits son la parte fraccionaria (escala = 32768). Al multiplicar dos números Q15 entre sí, el resultado intermedio tiene escala 2^30 (Q30) y puede ocupar hasta 32 bits, por lo que es obligatorio hacer el cast a int32_t antes de multiplicar y luego desplazar 15 bits a la derecha (>> 15).',
+        codeSnippet: `typedef int16_t q15_t; // Rango [-1.0, +0.999969] -> Escala: 1.0 equivaldría a 32768\n\nstatic inline q15_t q15_mul(q15_t a, q15_t b) {\n    int32_t prod = (int32_t)a * (int32_t)b; // Producto en 32 bits (Q30) para no desbordar!\n    return (q15_t)(prod >> 15);             // Volvemos a escala Q15 dividiendo entre 32768\n}`
+      },
+      {
+        title: '2. Aritmética de Saturación vs Desbordamiento Circular (Wrap-Around)',
+        concept: 'En enteros normales de C, si sumas 30000 + 5000 en un int16_t (máximo +32767), el resultado da la vuelta por abajo a -30536 (Wrap-Around). ¡Si eso es el mando de un motor o el timón de un cohete, invertirá la dirección bruscamente! En control y DSP usamos siempre Aritmética de Saturación: si el resultado supera +32767 se clava en +32767, y si baja de -32768 se clava en -32768.',
+        codeSnippet: `static inline q15_t q15_add_sat(q15_t a, q15_t b) {\n    int32_t sum = (int32_t)a + (int32_t)b;\n    if (sum > 32767L)  return 32767;\n    if (sum < -32768L) return -32768;\n    return (q15_t)sum;\n}`
+      },
+      {
+        title: '3. Lazo de Control PID Discreto con Anti-Windup de Integrador',
+        concept: 'Un controlador PID calcula en cada instante de muestreo Ts el error e[k] = Consigna - Medida_ADC, y suma tres acciones: Proporcional (Kp * e[k]), Integral (acumula Ki * e[k] para eliminar el error estacionario) y Derivativa (Kd * (e[k] - e[k-1]) para frenar oscilaciones). Si el actuador (PWM) ya está al 100% porque el motor está bloqueado y sigues sumando al integrador, se produce el "Integral Windup" (el integrador crece a millones y tarda segundos en descargarse). El Anti-Windup congela o recorta el integrador en los límites físicos del PWM.',
+        codeSnippet: `// Ecuación en diferencias de un Controlador PID Discreto con Clamping Anti-Windup:\nerror = setpoint - measurement;\nintegral += (ki * error);\nif (integral > OUT_MAX) integral = OUT_MAX; // Anti-Windup!\nif (integral < OUT_MIN) integral = OUT_MIN;\nout = (kp * error) + integral + (kd * (error - prev_error));\nprev_error = error;`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Multiplicador Hardware 8x8 de 2 ciclos (MUL / MULS) aplicado a Punto Fijo Q8.8
+// El AVR NO tiene FPU: un "float * float" tarda ~140 ciclos, pero en Punto Fijo Q8.8 tarda ~12 ciclos!
+#include <stdint.h>
+
+typedef int16_t q8_8_t; // 8 bits enteros + 8 bits fraccionarios (Escala = 256)
+
+q8_8_t avr_pid_step_q8_8(q8_8_t setpoint, q8_8_t measured, q8_8_t *integ, q8_8_t *prev_err) {
+    q8_8_t err = setpoint - measured;
+    *integ += (err >> 2); // Ki = 0.25 (división exacta por desplazamiento!)
+    if (*integ > 25500) *integ = 25500;
+    if (*integ < 0)     *integ = 0;
+    q8_8_t deriv = err - *prev_err;
+    *prev_err = err;
+    return (err * 2) + *integ + (deriv >> 1); // Kp=2.0, Ki=0.25, Kd=0.5 sin un solo float!
+}`,
+        cmsisStruct: `#include <avr/io.h>
+
+// Aplicación directa de la salida del PID (recortada a 0..255) al registro PWM OCR0A:
+void avr_apply_pid_to_pwm(int16_t pid_out_raw) {
+    if (pid_out_raw > 255) pid_out_raw = 255;
+    if (pid_out_raw < 0)   pid_out_raw = 0;
+    OCR0A = (uint8_t)pid_out_raw;
+}`,
+        proDriver: `// En el ATmega328P, sustituir float por punto fijo Q8.8 o Q15 no solo multiplica por 10x
+// la velocidad del lazo PID, sino que ahorra más de 1.5 KB de Flash de la librería libm.`,
+        asmInsight: 'La CPU AVR incluye instrucciones dedicadas FMUL y FMULS (Fractional Multiply) pensadas específicamente para punto fijo Q1.7.',
+        hardwareNote: 'Ejecuta siempre el cálculo del PID dentro de una bandera disparada por una interrupción de Timer con periodo fijo Ts (ej. cada 1 ms exacto).'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401 (Cortex-M4 DSP): Instrucción Hardware de Saturación en 1 Ciclo (__SSAT)
+// El núcleo Cortex-M4 incluye extensiones DSP en silicio que saturan un entero a N bits en 1 ciclo!
+#include <stdint.h>
+
+static inline int16_t stm32_ssat_q15(int32_t val) {
+    int32_t res;
+    // Instrucción ensamblador SSAT: recorta automáticamente al rango [-32768, +32767] en 1 ciclo:
+    __asm volatile ("ssat %0, %1, %2" : "=r" (res) : "I" (16), "r" (val));
+    return (int16_t)res;
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+// Filtro exponencial IIR (EMA) en Punto Fijo Q15 para limpiar lecturas ruidosas del ADC:
+// Formula: y[n] = alpha * x[n] + (1 - alpha) * y[n-1]   (con alpha = 0.25 -> 8192 en Q15)
+int16_t stm32_ema_filter_q15(int16_t new_sample, int16_t prev_filtered) {
+    int32_t acc = ((int32_t)8192 * new_sample) + ((int32_t)24576 * prev_filtered);
+    return (int16_t)(acc >> 15);
+}`,
+        proDriver: `// Aunque el STM32F401 tiene FPU de precisión simple (float de 32 bits), el uso de Q15/Q31
+// con instrucciones SIMD del Cortex-M4 (SMLAD: dos multiplicaciones de 16 bits + suma en 1 ciclo)
+// permite procesar 2 muestras en paralelo en un solo ciclo de reloj.`,
+        asmInsight: 'La instrucción SSAT R0, #16, R0 evita los dos saltos condicionales (CMP + BGT + BLT), eliminando los vaciados del pipeline de la CPU.',
+        hardwareNote: 'Si decides usar la FPU en STM32F4, recuerda habilitar los bits CP10 y CP11 en el registro SCB->CPACR ((3UL << 20) | (3UL << 22)) al arrancar.'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3 (RISC-V RV32IMC): Multiplicador Hardware MUL de 1 ciclo (Extensión "M") Sin FPU
+// ¡El ESP32-C3 NO tiene FPU hardware! Usar "float" llama a rutinas lentas en software (__mulsf3),
+// pero tiene multiplicador entero de 32x32->64 bits (instrucciones MUL y MULH) en 1 ciclo:
+#include <stdint.h>
+
+typedef int32_t q16_16_t; // 16 bits enteros + 16 bits fraccionarios (Escala = 65536)
+
+static inline q16_16_t riscv_q16_mul(q16_16_t a, q16_16_t b) {
+    int64_t prod = (int64_t)a * (int64_t)b; // Usa MUL + MULH del RISC-V en silicio
+    return (q16_16_t)(prod >> 16);
+}`,
+        cmsisStruct: `// Controlador PID completo en Q16.16 para el ESP32-C3 (100% determinista en ~15 ciclos):
+typedef struct {
+    q16_16_t kp;
+    q16_16_t ki;
+    q16_16_t kd;
+    q16_16_t integral;
+    q16_16_t prev_error;
+    q16_16_t out_max;
+    q16_16_t out_min;
+} pid_q16_t;`,
+        proDriver: `// Saber que el ESP32-C3 carece de FPU pero posee la extensión "M" de RISC-V es lo que
+// diferencia a un ingeniero de firmware Senior: en Q16.16 tu lazo de control vuela.`,
+        asmInsight: 'En RV32IMC, (int64_t)a * b compila en solo 2 instrucciones máquina (MUL y MULH) seguidas de SRLI/SLLI.',
+        hardwareNote: 'A diferencia del ESP32 original (Xtensa con FPU), el ESP32-C3 es RV32IMC puro (Integer + Multiply + Compressed).'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: Conversión de Temperatura Interna en Punto Fijo Q30.2 (0.25 °C por LSB)
+// El periférico TEMP del nRF52840 (0x4000C000) ya entrega la temperatura en Punto Fijo nativo!
+#define TEMP_TASKS_START (*(volatile uint32_t *)0x4000C000UL)
+#define TEMP_EVENTS_DATARDY (*(volatile uint32_t *)0x4000C100UL)
+#define TEMP_VALUE_REG   (*(volatile int32_t *)0x4000C508UL)
+
+// TEMP_VALUE_REG devuelve unidades de 0.25 °C (formato Q30.2).
+// Para convertirlo a décimas de grado (ej. 25.5 °C -> 255) sin usar float:
+int32_t nrf_temp_to_deci_celsius(int32_t raw_q2) {
+    return (raw_q2 * 10L) >> 2; // Multiplica por 10 y divide entre 4 (>> 2)
+}`,
+        cmsisStruct: `#include "nrf.h"
+
+int32_t nrf_read_die_temp_centi_c(void) {
+    // Cada LSB vale 0.25 °C = 25 centésimas de grado:
+    return NRF_TEMP->TEMP * 25L;
+}`,
+        proDriver: `// Muchos sensores digitales industriales (TMP102, DS18B20, INA219, periférico TEMP de Nordic)
+// entregan sus registros directamente en Punto Fijo (ej. Q12.4 o Q30.2).`,
+        asmInsight: 'Convertir Q30.2 a centésimas de grado es una sola instrucción MUL por 25, evitando encender la FPU y ahorrando energía.',
+        hardwareNote: 'Mantener la FPU apagada en el nRF52840 reduce el tamaño del marco de pila en las interrupciones de radio BLE.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040: Coprocesador Hardware "INTERP0 / INTERP1" en el bloque SIO (0xD0000080)
+// ¡El RP2040 NO tiene FPU, pero incluye 2 Interpoladores Hardware en el SIO que hacen
+// desplazamientos, máscaras, sumas y saturación (clamping) en 1 solo ciclo de reloj!
+#define SIO_INTERP0_ACCUM0   (*(volatile int32_t *)0xD0000080UL)
+#define SIO_INTERP0_BASE0    (*(volatile int32_t *)0xD0000088UL)
+#define SIO_INTERP0_PEEK0    (*(volatile int32_t *)0xD00000A0UL)
+#define SIO_INTERP0_CTRL0    (*(volatile uint32_t *)0xD00000ACUL)
+
+// En modo CLAMP (Bit 22 de CTRL0), INTERP0 satura automáticamente ACCUM0 entre BASE0 y BASE1:
+int32_t rp2040_hw_clamp_anti_windup(int32_t value, int32_t min_limit, int32_t max_limit) {
+    if (value > max_limit) return max_limit;
+    if (value < min_limit) return min_limit;
+    return value;
+}`,
+        cmsisStruct: `#include "hardware/structs/interp.h"
+
+void rp2040_interp0_setup_clamp(int32_t min_val, int32_t max_val) {
+    interp0_hw->ctrl[0] = (1UL << 22) | (1UL << 15); // CLAMP=1, SIGNED=1
+    interp0_hw->base[0] = (uint32_t)min_val;
+    interp0_hw->base[1] = (uint32_t)max_val;
+}`,
+        proDriver: `// Una vez configurado interp0_hw en modo CLAMP, basta con escribir tu integrador PID en
+// interp0_hw->accum[0] y leer interp0_hw->peek[0] para obtener el valor saturado en 1 ciclo!`,
+        asmInsight: 'El coprocesador INTERP vive en el bus SIO de ciclo único del RP2040, compensando con creces la ausencia de instrucciones DSP en el Cortex-M0+.',
+        hardwareNote: 'Cada núcleo del RP2040 tiene su propio par de interpoladores dedicados (INTERP0 e INTERP1).'
+      }
+    },
+    challenge: {
+      question: 'Reto de Control Industrial — Saturación del Integrador (Integral Windup)',
+      scenario:
+        'Has programado un controlador PID para regular la velocidad de un brazo robótico con consigna de 1000 RPM. Mientras el robot opera, un operario sujeta el brazo durante 5 segundos impidiendo que se mueva (medida = 0 RPM, error = +1000 RPM). Como el término integral suma (Ki * error) cada milisegundo sin límite, el acumulador integral sube hasta +5.000.000 aunque el registro del PWM físico ya estaba a tope (100%). Cuando el operario suelta el brazo, ¿qué ocurre si tu PID NO tiene protección Anti-Windup?',
+      options: [
+        {
+          id: 'a',
+          label: 'El brazo sale disparado a máxima potencia (100% PWM) y sobrepasa violentamente las 1000 RPM (Overshoot peligroso) porque, aunque el error pase a ser negativo al superar la consigna, tarda varios segundos en restar y vaciar los +5.000.000 acumulados en el integrador.',
+          isCorrect: true,
+          feedback: '¡Exacto! Ese fenómeno es el temido "Integral Windup". La solución obligatoria en cualquier PID de producción es aplicar Clamping Anti-Windup: recortar el acumulador integral inmediatamente a los límites físicos de salida [OUT_MIN, OUT_MAX] en cada iteración.'
+        },
+        {
+          id: 'b',
+          label: 'El brazo se detiene suavemente en 1000 RPM sin sobreoscilación porque el término proporcional anula instantáneamente cualquier valor del integrador.',
+          isCorrect: false,
+          feedback: 'Mientras el integrador valga millones por encima del máximo del PWM, la suma P + I + D seguirá saturada al 100% mucho después de haber superado la consigna.'
+        },
+        {
+          id: 'c',
+          label: 'El término integral solo sirve para amplificar el ruido de alta frecuencia del ADC.',
+          isCorrect: false,
+          feedback: 'Quien amplifica el ruido de alta frecuencia es el término Derivativo (D); el término Integral (I) elimina el error en régimen permanente.'
+        }
+      ]
+    }
+  },
+
+  // =========================================================================
+  // MÓDULO 15: DEPURACIÓN HARDWARE (SWD/JTAG) Y ANÁLISIS FORENSE DE HARDFAULT
+  // =========================================================================
+  {
+    id: 15,
+    slug: 'depuracion-hardware-swd-jtag-analisis-forense-hardfault-cfsr-stack',
+    title: 'Módulo 15: Depuración Hardware (SWD / JTAG) y Análisis Forense de Fallos (HardFault)',
+    subtitle: 'Cómo leer los registros de autopsia del procesador (SCB->CFSR, HFSR, BFAR, MMFAR) y reconstruir el Stack Frame para encontrar la instrucción exacta en C que colgó el microcontrolador',
+    level: 'Experto Industrial',
+    duration: '120 min',
+    recommendedLab: 'senior-rtos-can-pid-fault',
+    superficialMyth:
+      'Cuando un microcontrolador se cuelga y entra en HardFault_Handler(), el programador novato llena el código de printf("llego aqui 1"), printf("llego aqui 2") o reinicia a ciegas sin saber que la CPU guarda una "caja negra" exacta del accidente.',
+    overwhelmingDatasheet:
+      'El ARMv7-M Architecture Reference Manual habla de "Configurable Fault Status Register (SCB->CFSR: UFSR, BFSR, MMFSR), BusFault Address Register (BFAR), Exception Stack Frame Unwinding, CoreSight DWT Cycle Counter y SWD Breakpoint Unit (FPB)".',
+    theBridgeExplanation:
+      'Cuando tu código C comete un delito grave en silicio (escribir en una dirección de memoria que no existe como 0x99999999, dividir entre cero, ejecutar una instrucción corrupta o saltar a un puntero de función NULL), el hardware de la CPU detiene la ejecución en seco, apila automáticamente los 8 registros del momento exacto del choque en la RAM (incluyendo el PC —la dirección exacta de la instrucción culpable— y el LR —quién llamó a esa función—) y anota el motivo del fallo en el registro SCB->CFSR. ¡Si programas un HardFault_Handler inteligente que lea esa pila y el registro CFSR, el propio chip te dice el nombre del error, la dirección prohibida que intentaste tocar y la línea exacta de tu código C!',
+    keyTakeaways: [
+      {
+        title: '1. El Marco de Pila del Accidente (Exception Stack Frame: R0..R3, R12, LR, PC, xPSR)',
+        concept: 'Justo antes de saltar a HardFault_Handler, el hardware de ARM Cortex-M empuja 8 palabras de 32 bits en la pila activa (MSP o PSP). La palabra en el índice [6] (sp[6]) es el Program Counter (PC) exacto de la instrucción que causó el fallo, y sp[5] es el Link Register (LR) con la dirección de retorno de la función.',
+        codeSnippet: `// Estructura exacta de los 8 registros apilados por el silicio al ocurrir un HardFault:\ntypedef struct {\n    uint32_t r0, r1, r2, r3, r12;\n    uint32_t lr;   // sp[5]: Quién llamó a la función donde ocurrió el accidente\n    uint32_t pc;   // sp[6]: ¡DIRECCIÓN EXACTA DE LA INSTRUCCIÓN QUE EXPLOTÓ!\n    uint32_t xpsr; // sp[7]: Banderas de la ALU y bit Thumb\n} fault_stack_frame_t;`
+      },
+      {
+        title: '2. Los Registros de Diagnóstico de Fallo (SCB->CFSR, SCB->BFAR y SCB->MMFAR)',
+        concept: 'En Cortex-M3/M4/M7, el registro de 32 bits SCB->CFSR (0xE000ED28) se divide en tres sub-registros: 1) MMFSR (bits 7..0, fallos de protección de memoria MPU), 2) BFSR (bits 15..8, BusFault por acceder a una dirección física inexistente, guardada en SCB->BFAR si BFARVALID=1) y 3) UFSR (bits 31..16, UsageFault como división por cero DIVBYZERO, acceso desalineado UNALIGNED o instrucción indefinida UNDEFINSTR).',
+        codeSnippet: `uint32_t cfsr = SCB->CFSR; // 0xE000ED28: Registro de Estado de Fallo Configurable\nif (cfsr & (1UL << 15)) {  // Bit 15 (BFARVALID): ¡SCB->BFAR tiene la dirección culpable!\n    uint32_t bad_addr = SCB->BFAR; // Dirección exacta que causó el BusFault\n}`
+      },
+      {
+        title: '3. Medición de Ciclos Exactos de CPU con el Contador Hardware DWT->CYCCNT',
+        concept: 'Dentro del bloque de depuración CoreSight (Data Watchpoint and Trace — DWT), los procesadores Cortex-M3/M4/M7 integran un contador libre de 32 bits (DWT->CYCCNT en 0xE0001004) que se incrementa en +1 con cada ciclo de reloj de la CPU. Permite medir el WCET (Worst-Case Execution Time) de cualquier función en C con precisión de nanosegundos sin gastar ningún Timer periférico.',
+        codeSnippet: `CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk; // Habilita bloque de traza CoreSight\nDWT->CYCCNT = 0UL;\nDWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;          // Arranca contador de ciclos de CPU\nuint32_t t0 = DWT->CYCCNT;\nejecutar_algoritmo_critico();\nuint32_t ciclos_exactos = DWT->CYCCNT - t0;     // ¡Precisión de 1 ciclo de CPU!`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Registro MCUSR (0x54) + Canario de Pila (Stack Canary 0xC5) en SRAM
+// El AVR no tiene excepción HardFault, pero tiene el registro MCUSR que te dice POR QUÉ
+// se reinició el chip (Bit 3: WDRF Watchdog, Bit 2: BORF Brown-Out caída de tensión):
+#define MCUSR_REG (*(volatile uint8_t *)0x54)
+
+// Y para detectar si la Pila (Stack) creció tanto que aplastó tus variables (.bss),
+// pintamos una palabra mágica ("Canario" 0xDEAD) al final de .bss y la vigilamos:
+extern uint8_t __bss_end;
+#define STACK_CANARY_ADDR ((volatile uint16_t *)&__bss_end)
+
+void avr_init_stack_canary(void) {
+    *STACK_CANARY_ADDR = 0xDEADU;
+}
+
+uint8_t avr_check_stack_overflow(void) {
+    return (*STACK_CANARY_ADDR != 0xDEADU) ? 1U : 0U; // 1 = ¡La pila pisó el canario!
+}`,
+        cmsisStruct: `#include <avr/io.h>
+
+uint8_t avr_capture_reset_cause_early(void) {
+    uint8_t cause = MCUSR;
+    MCUSR = 0U; // Limpiar MCUSR al arrancar para distinguir el próximo reinicio
+    return cause;
+}`,
+        proDriver: `// Técnica clásica en GCC ("Stack Painting"): rellenar toda la RAM libre con 0xAA55 al arrancar
+// permite medir el "High-Water Mark" (uso máximo histórico de pila) buscando hasta dónde se borró 0xAA55.`,
+        asmInsight: 'En el ATmega328P, la interfaz de depuración física en un solo pin es debugWIRE (usando el propio pin RESET).',
+        hardwareNote: 'Guarda siempre el valor de MCUSR en una sección .noinit de RAM antes de saltar a tu diagnóstico para saber si hubo caída de batería (BORF) o cuelgue (WDRF).'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401 (Cortex-M4): Lectura Forense de SCB->CFSR (0xE000ED28) y SCB->BFAR (0xE000ED38)
+#define SCB_CFSR_REG  (*(volatile uint32_t *)0xE000ED28UL)
+#define SCB_HFSR_REG  (*(volatile uint32_t *)0xE000ED2CUL)
+#define SCB_MMFAR_REG (*(volatile uint32_t *)0xE000ED34UL)
+#define SCB_BFAR_REG  (*(volatile uint32_t *)0xE000ED38UL)
+#define SCB_CCR_REG   (*(volatile uint32_t *)0xE000ED14UL)
+
+void stm32_enable_div_by_zero_and_unaligned_traps(void) {
+    // Por defecto Cortex-M4 devuelve 0 al dividir por 0 en silencio!
+    // Activamos bit 4 (DIV_0_TRP) y bit 3 (UNALIGN_TRP) en SCB->CCR para cazar el bug al vuelo:
+    SCB_CCR_REG |= (1UL << 4) | (1UL << 3);
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+// Manejador C que recibe el puntero exacto al marco de pila (MSP o PSP) donde explotó el código:
+void hardfault_forensic_c_handler(const uint32_t *fault_sp) {
+    volatile uint32_t crashed_pc  = fault_sp[6]; // Dirección de la instrucción culpable
+    volatile uint32_t caller_lr   = fault_sp[5]; // Función que la llamó
+    volatile uint32_t cfsr_status = SCB->CFSR;   // Qué tipo de delito cometió
+    volatile uint32_t bus_addr    = SCB->BFAR;   // Dirección prohibida leída/escrita
+    (void)crashed_pc; (void)caller_lr; (void)cfsr_status; (void)bus_addr;
+    __BKPT(0); // Detiene el depurador SWD inmediatamente en esta línea!
+}`,
+        proDriver: `// Cómo convertir "crashed_pc = 0x080014A2" en el archivo y número de línea exacto de tu C:
+// Ejecuta en tu terminal:
+//   arm-none-eabi-addr2line -e firmware.elf -f -p 0x080014A2
+// Y te responderá: "motor_apply_curve at src/motor_lib.c:42"!`,
+        asmInsight: 'El prólogo en ensamblador de HardFault_Handler hace: TST LR, #4 -> ITE EQ -> MRSEQ R0, MSP -> MRSNE R0, PSP -> B hardfault_forensic_c_handler.',
+        hardwareNote: 'Comprobar el bit 2 del registro LR (EXC_RETURN & 4) te dice si el fallo ocurrió en modo Handler/Main (MSP) o dentro de una tarea de RTOS (PSP).'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3 (RISC-V): Registros CSR de Autopsia de Excepciones (mcause, mepc y mtval)
+// En arquitectura RISC-V no existe SCB->CFSR; la CPU tiene 3 registros CSR dedicados al fallo:
+// - mepc   : Machine Exception Program Counter (Dirección exacta de la instrucción que falló)
+// - mcause : Código numérico de la causa (ej. 2=Instrucción ilegal, 5=Load Fault, 7=Store Fault)
+// - mtval  : Machine Trap Value (Dirección de memoria inválida que intentaste leer/escribir)
+#include <stdint.h>
+
+static inline uint32_t riscv_read_mepc(void) {
+    uint32_t val;
+    __asm volatile ("csrr %0, mepc" : "=r"(val));
+    return val;
+}`,
+        cmsisStruct: `static inline uint32_t riscv_read_mcause(void) {
+    uint32_t val;
+    __asm volatile ("csrr %0, mcause" : "=r"(val));
+    return val;
+}
+
+static inline uint32_t riscv_read_mtval(void) {
+    uint32_t val;
+    __asm volatile ("csrr %0, mtval" : "=r"(val));
+    return val;
+}`,
+        proDriver: `// El ESP32-C3 incluye un depurador JTAG USB nativo en los pines GPIO18 (D-) y GPIO19 (D+)
+// sin necesitar un adaptador externo FTDI o ST-Link!`,
+        asmInsight: 'La instrucción CSRR (Control and Status Register Read) lee mepc, mcause y mtval en 1 ciclo.',
+        hardwareNote: 'Cuando ocurre un pánico en ESP-IDF, el volcado "Guru Meditation Error" imprime exactamente mepc, mcause y mtval por UART.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: Contador de Ciclos DWT->CYCCNT (0xE0001004) y Registro de Causa RESETREAS
+#define CoreDebug_DEMCR_REG (*(volatile uint32_t *)0xE000EDFCUL)
+#define DWT_CTRL_REG        (*(volatile uint32_t *)0xE0001000UL)
+#define DWT_CYCCNT_REG      (*(volatile uint32_t *)0xE0001004UL)
+#define POWER_RESETREAS_REG (*(volatile uint32_t *)0x40000400UL)
+
+void nrf_dwt_cycle_counter_init(void) {
+    CoreDebug_DEMCR_REG |= (1UL << 24); // Bit 24: TRCENA (Habilita bloque CoreSight DWT)
+    DWT_CYCCNT_REG       = 0UL;
+    DWT_CTRL_REG        |= (1UL << 0);  // Bit 0: CYCCNTENA (Incrementa 64.000.000 veces/s)
+}`,
+        cmsisStruct: `#include "nrf.h"
+
+// El bit 3 de NRF_POWER->RESETREAS (LOCKUP) indica si el chip se reinició porque el núcleo
+// ARM entró en estado "Core Lockup" (un fallo grave dentro del propio HardFault_Handler):
+bool nrf_did_reboot_from_lockup(void) {
+    return (NRF_POWER->RESETREAS & POWER_RESETREAS_LOCKUP_Msk) != 0UL;
+}`,
+        proDriver: `// En sistemas desplegados en campo (donde no tienes un cable SWD conectado), el HardFault_Handler
+// guarda {PC, LR, CFSR, BFAR} en una estructura en RAM .noinit o Flash y reinicia el chip.`,
+        asmInsight: 'DWT->CYCCNT permite verificar que ninguna sección crítica bloquee las interrupciones de la radio BLE más de los microsegundos permitidos.',
+        hardwareNote: 'El registro NRF_POWER->RESETREAS es acumulativo: debes limpiarlo escribiendo un 1 en sus bits tras leerlo al arrancar.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040 (ARMv6-M Cortex-M0+): Depuración SWD Multicore e Instrucción de Breakpoint (BKPT)
+// En Cortex-M0+ (ARMv6-M) no existe SCB->CFSR detallado; todos los fallos de bus o instrucción
+// escalan directamente a HardFault_Handler, donde inspeccionamos el Stack Frame en MSP/PSP:
+#include <stdint.h>
+
+typedef struct {
+    uint32_t r0, r1, r2, r3, r12, lr, pc, xpsr;
+} armv6m_exception_frame_t;
+
+void rp2040_software_breakpoint(void) {
+    __asm volatile ("bkpt #0"); // Detiene el núcleo actual si hay sonda SWD conectada
+}`,
+        cmsisStruct: `#include "hardware/structs/psm.h"
+
+// El registro FRCE_OFF del Power-on State Machine (PSM) permite reiniciar un subsistema
+// colgado sin perder el estado de depuración SWD.`,
+        proDriver: `// En el RP2040, el bus SWD (pines SWCLK y SWDIO) utiliza el protocolo ADIv5 multi-drop,
+// permitiendo conectar GDB al Core 0 y al Core 1 simultáneamente con dos hilos de depuración.`,
+        asmInsight: 'En Cortex-M0+ cualquier acceso de 32 bits (LDR/STR) a una dirección no múltiplo de 4 dispara un HardFault inmediato en silicio.',
+        hardwareNote: 'Cuidado con hacer casts de (uint8_t *) a (uint32_t *) sobre un buffer desalineado en el RP2040: en Cortex-M4 funciona pero en Cortex-M0+ lanza HardFault.'
+      }
+    },
+    challenge: {
+      question: 'Reto Forense de HardFault — Autopsia de un Cuelgue en Producción',
+      scenario:
+        'Un equipo médico basado en un ARM Cortex-M4 (STM32F4 / nRF52840) sufre un reinicio esporádico cada 48 horas. Tu manejador forense de HardFault captura y guarda en memoria el marco de pila del accidente antes de reiniciar: sp[5] (LR) = 0x08002105, sp[6] (PC) = 0x08002148, SCB->CFSR = 0x00008200 (Bit 9 PRECISERR = 1 y Bit 15 BFARVALID = 1) y SCB->BFAR = 0x00000004. ¿Qué ocurrió exactamente en tu código C?',
+      options: [
+        {
+          id: 'a',
+          label: 'La instrucción situada en la dirección de Flash 0x08002148 (llamada desde 0x08002104) intentó desreferenciar un puntero NULL a una estructura accediendo a su segundo campo de 32 bits (offset +4 -> dirección 0x00000004), provocando un BusFault preciso.',
+          isCorrect: true,
+          feedback: '¡Autopsia forense magistral! Cuando tienes un puntero nulo (ptr = NULL = 0x00000000) y haces ptr->segundo_campo (que está en el offset +4 bytes), la CPU intenta leer o escribir en la dirección 0x00000004. Eso queda grabado en SCB->BFAR = 0x00000004 y el PC (0x08002148) te da la línea exacta al pasarlo por addr2line.'
+        },
+        {
+          id: 'b',
+          label: 'El programa dividió un número entre 4 en la dirección 0x00008200.',
+          isCorrect: false,
+          feedback: '0x00008200 es el valor de las banderas del registro SCB->CFSR (PRECISERR | BFARVALID), y 0x00000004 en BFAR es la dirección de memoria que causó el fallo de bus.'
+        },
+        {
+          id: 'c',
+          label: 'Es imposible saber dónde falló sin conectar una sonda JTAG en el momento exacto del fallo.',
+          isCorrect: false,
+          feedback: 'Precisamente para eso existen el Stack Frame de excepción y los registros SCB->CFSR y SCB->BFAR: puedes guardarlos en Flash/EEPROM antes de reiniciar y analizar el fallo en el laboratorio.'
+        }
+      ]
+    }
+  },
+
+  // =========================================================================
+  // MÓDULO 16: ULTRA-BAJO CONSUMO (SLEEP / STOP / DEEP-SLEEP) Y BATERÍAS
+  // =========================================================================
+  {
+    id: 16,
+    slug: 'modos-ultra-bajo-consumo-sleep-deep-sleep-wfi-wfe-baterias',
+    title: 'Módulo 16: Modos de Ultra-Bajo Consumo (Sleep, Stop, Deep-Sleep) y Diseño con Batería',
+    subtitle: 'Cómo reducir el consumo de un microcontrolador de 20 mA a 2 µA usando las instrucciones __WFI() / __WFE(), apagado selectivo de dominios de reloj, pines flotantes y presupuesto energético',
+    level: 'Experto Industrial',
+    duration: '120 min',
+    recommendedLab: 'senior-rtos-can-pid-fault',
+    superficialMyth:
+      'En proyectos de iniciación dejan la CPU dando millones de vueltas por segundo en un bucle while(1) vacío esperando un botón o un timer, agotando una pila de botón CR2032 (220 mAh) en menos de 18 horas.',
+    overwhelmingDatasheet:
+      'Las hojas de datos hablan de "System Control Register SCB->SCR (SLEEPDEEP, SLEEPONEXIT), Wait For Interrupt (WFI), Wait For Event (WFE), Voltage Regulator Low-Power Mode, SRAM Retention Domains, Wake-up Sources (EXTI/RTC) y fugas por pines en High-Z".',
+    theBridgeExplanation:
+      'Cada vez que un transistor CMOS cambia de 0 a 1 dentro de tu microcontrolador, carga un pequeño condensador parásito gastando energía: la potencia dinámica sigue la ley física P = C * V^2 * f. Si tu CPU corre a 84 MHz ejecutando un bucle vacío, sus millones de transistores conmutan 84 millones de veces por segundo para no hacer nada. Cuando ejecutas la instrucción ensamblador WFI (Wait For Interrupt), una puerta lógica detiene en seco el reloj del núcleo (f = 0 Hz para la CPU) mientras los periféricos (UART, Timer, EXTI) siguen despiertos. En cuanto llega un byte por UART o se pulsa un botón, el controlador de interrupciones vuelve a abrir la compuerta del reloj en pocos microsegundos y la CPU continúa en la línea siguiente!',
+    keyTakeaways: [
+      {
+        title: '1. La Ley Física del Consumo CMOS (P = C · V² · f + I_leak · V) y el Ciclo de Trabajo',
+        concept: 'El consumo medio de un nodo IoT o espacial viene dado por la media ponderada entre el tiempo que pasa despierto (I_run, miliamperios) y el tiempo que pasa dormido (I_sleep, microamperios): I_avg = (I_run * T_run + I_sleep * T_sleep) / (T_run + T_sleep). Si tu sensor mide durante 5 ms (a 10 mA) y duerme durante 995 ms (a 2 µA), tu corriente media cae de 10 mA a solo 52 µA (¡la batería dura 190 veces más!).',
+        codeSnippet: `// Cálculo de autonomía de batería (en horas) a partir de la corriente media en microamperios:\n// Capacidad_uAh = Capacidad_mAh * 1000\nuint32_t battery_life_hours(uint32_t capacity_mah, uint32_t i_avg_ua) {\n    return (capacity_mah * 1000UL) / (i_avg_ua > 0UL ? i_avg_ua : 1UL);\n}`
+      },
+      {
+        title: '2. Sleep Normal vs Deep-Sleep (SCB->SCR: SLEEPDEEP y SLEEPONEXIT)',
+        concept: 'En ARM Cortex-M, el registro SCB->SCR (0xE000ED10) tiene dos bits clave: 1) Bit 1 (SLEEPONEXIT): al terminar una ISR, la CPU vuelve a dormirse automáticamente sin regresar siquiera al hilo main() (ideal para aplicaciones 100% guiadas por interrupciones); y 2) Bit 2 (SLEEPDEEP): si vale 0, __WFI() entra en modo Sleep ligero (solo apaga el reloj de la CPU); si vale 1, __WFI() entra en modo Stop/Deep-Sleep (apaga también el PLL de alta frecuencia y reguladores principales, dejando solo el oscilador lento de 32 kHz del RTC y la retención de SRAM).',
+        codeSnippet: `#define SCB_SCR_SLEEPONEXIT (1UL << 1)\n#define SCB_SCR_SLEEPDEEP   (1UL << 2)\n\nvoid enter_deep_sleep_stop_mode(void) {\n    SCB->SCR |= SCB_SCR_SLEEPDEEP; // Selecciona modo Stop / Deep-Sleep\n    __DSB();                       // Asegura que la escritura en SCB->SCR se complete\n    __WFI();                       // Detiene el reloj hasta la próxima interrupción EXTI/RTC!\n}`
+      },
+      {
+        title: '3. El Enemigo Oculto del Bajo Consumo: Pines GPIO Flotantes y Pull-Ups Contra Tierra',
+        concept: 'Puedes configurar el modo Deep-Sleep más avanzado del mundo, pero si dejas un pin GPIO como Entrada Digital sin resistencia Pull-Up/Pull-Down (flotante a ~1.65V), los dos transistores del inversor de entrada (Schmitt Trigger) conducen a la vez desde VCC a GND gastando hasta 200 µA por pin. Del mismo modo, dejar un pin en Analógico o con Pull desconectado según indique el fabricante es vital antes de dormir.',
+        codeSnippet: `// En STM32, configurar los pines NO utilizados en modo Analógico (MODER = 0b11, PUPDR = 0b00)\n// desconecta el Schmitt Trigger de entrada, reduciendo la fuga de cada pin a 0.00 uA:\nGPIOA->MODER |= (3UL << (pin * 2U)); // Modo 11: Analógico (Schmitt Trigger apagado)`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Registro SMCR (Sleep Mode Control Register, 0x53) y PRR (Power Reduction, 0x64)
+#define SMCR_REG   (*(volatile uint8_t *)0x53)
+#define PRR_REG    (*(volatile uint8_t *)0x64)
+#define ADCSRA_REG (*(volatile uint8_t *)0x7A)
+
+void avr_enter_power_down_sleep(void) {
+    // 1. ¡TRAMPA CLÁSICA AVR!: Si no apagas ADEN (Bit 7 de ADCSRA), el ADC sigue gastando 250 uA dormido!
+    ADCSRA_REG &= ~(1U << 7);
+    // 2. Apagar relojes de periféricos en PRR:
+    PRR_REG = 0xFFU;
+    // 3. Modo Power-Down (SM[2:0] = 010 -> Bit 2 = 1) + Sleep Enable (Bit 0 SE = 1):
+    SMCR_REG = (2U << 1) | (1U << 0);
+    __asm volatile ("sleep"); // Instrucción SLEEP: baja el consumo del chip a ~0.5 uA!
+    SMCR_REG &= ~(1U << 0);   // Limpiar bit SE al despertar
+}`,
+        cmsisStruct: `#include <avr/io.h>
+#include <avr/sleep.h>
+
+void avr_sleep_until_int0_button(void) {
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+    sleep_bod_disable(); // Desactiva Brown-Out Detector durante el sueño (~15 uA menos)
+    sleep_cpu();
+    sleep_disable();
+}`,
+        proDriver: `// Apagar ADCSRA (ADEN=0) y el BOD antes de ejecutar "sleep" en el ATmega328P es la diferencia
+// entre consumir 280 uA (pila muerta en 1 mes) o 0.4 uA (pila viva durante 10 años).`,
+        asmInsight: 'La instrucción SLEEP del AVR detiene el oscilador principal en modo Power-Down; solo INT0/INT1, PCINT o el Watchdog pueden despertarlo.',
+        hardwareNote: 'El bit SE (Sleep Enable) de SMCR debe ponerse a 1 justo antes de la instrucción SLEEP y limpiarse a 0 nada más despertar.'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401: Modo STOP con Regulador en Bajo Consumo (PWR->CR en 0x40007000 + SCB->SCR)
+#define PWR_CR_REG  (*(volatile uint32_t *)0x40007000UL)
+#define SCB_SCR_REG (*(volatile uint32_t *)0xE000ED10UL)
+
+void stm32_enter_stop_low_power_mode(void) {
+    // 1. En PWR->CR: limpiar PDDS (Bit 1 = 0 -> Modo Stop, no Standby) y poner LPDS (Bit 0 = 1 -> Regulador LP):
+    PWR_CR_REG = (PWR_CR_REG & ~(1UL << 1)) | (1UL << 0) | (1UL << 9); // Bit 9: FPDS (Flash Power-Down)
+    // 2. Activar SLEEPDEEP (Bit 2) en el registro SCB->SCR del núcleo ARM:
+    SCB_SCR_REG |= (1UL << 2);
+    // 3. Barrera de sincronización de datos + Instrucción Wait For Interrupt:
+    __asm volatile ("dsb");
+    __asm volatile ("wfi");
+    // 4. Al despertar por EXTI o RTC, limpiar SLEEPDEEP:
+    SCB_SCR_REG &= ~(1UL << 2);
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+// Modo SLEEPONEXIT: La CPU duerme el 100% del tiempo y solo se despierta para ejecutar ISRs:
+void stm32_enable_sleep_on_exit(void) {
+    SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
+    SCB->SCR |= SCB_SCR_SLEEPONEXIT_Msk; // Al salir de cualquier ISR, vuelve a dormir sola!
+    __DSB();
+    __WFI();
+}`,
+        proDriver: `// Atención al despertar del modo STOP en STM32: cuando el chip despierta de STOP, el reloj
+// del sistema vuelve por defecto al oscilador HSI interno (16 MHz). Tu código tras __WFI()
+// debe volver a encender el HSE y el PLL si necesitas de nuevo los 84 MHz.`,
+        asmInsight: 'La secuencia DSB + WFI vacía el buffer de escritura del bus antes de cortar el reloj del procesador.',
+        hardwareNote: 'En modo STOP del STM32F401 se conserva el 100% de los 96 KB de SRAM y el estado de todos los registros GPIO.'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3: Controlador de Energía RTC_CNTL (0x60008000) — Light-Sleep y Deep-Sleep (5 uA)
+#define RTC_CNTL_STATE0_REG      (*(volatile uint32_t *)0x60008018UL)
+#define RTC_CNTL_WAKEUP_STATE_REG (*(volatile uint32_t *)0x60008038UL)
+#define RTC_CNTL_SLP_TIMER0_REG  (*(volatile uint32_t *)0x60008008UL)
+
+void esp32c3_trigger_rtc_sleep(uint32_t wakeup_Mask) {
+    RTC_CNTL_WAKEUP_STATE_REG = (wakeup_Mask & 0xFFFFUL) << 15U;
+    RTC_CNTL_STATE0_REG |= (1UL << 31); // Bit 31: SLEEP_EN -> Apaga CPU y Wi-Fi/BLE!
+}`,
+        cmsisStruct: `// En el ESP32-C3, en modo Deep-Sleep los 400 KB de SRAM normal se apagan (consumo = 5 uA),
+// pero existen 8 KB de "RTC FAST Memory" que NO se borran al despertar de Deep-Sleep:
+#include <stdint.h>
+
+// Variable que sobrevive al reinicio de Deep-Sleep en la memoria del dominio RTC:
+__attribute__((section(".rtc.data"))) static uint32_t s_boot_count_rtc = 0U;`,
+        proDriver: `// Patrón industrial de Telemetría por Batería: Despertar de Deep-Sleep -> Leer sensor en 10 ms ->
+// Guardar en RTC RAM -> Transmitir en ráfaga -> Volver a Deep-Sleep de 5 uA.`,
+        asmInsight: 'Al despertar de Deep-Sleep, el ESP32-C3 ejecuta un reinicio rápido desde el vector de arranque conservando los 8 KB de RTC RAM.',
+        hardwareNote: 'Con Wi-Fi activo el ESP32-C3 consume picos de >250 mA; en Light-Sleep baja a 130 uA y en Deep-Sleep a solo 5 uA.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: El Rey del Ultra-Bajo Consumo — System ON Idle (1.5 uA) y System OFF (0.4 uA)
+#define POWER_SYSTEMOFF_REG (*(volatile uint32_t *)0x40000500UL)
+#define GPIO_PIN_CNF_BASE   ((volatile uint32_t *)0x50000700UL)
+
+void nrf_enter_system_off_deepest_sleep(uint32_t wake_pin) {
+    // Configurar el pin de despertar con detector SENSE en nivel bajo (Bits [17:16] = 3):
+    GPIO_PIN_CNF_BASE[wake_pin] = (0UL << 0) | (3UL << 2) | (3UL << 16);
+    // Escribir 1 en SYSTEMOFF apaga TODO el chip (consumo 0.4 uA) hasta que wake_pin cambie!
+    POWER_SYSTEMOFF_REG = 1UL;
+    while (1) { }
+}`,
+        cmsisStruct: `#include "nrf.h"
+
+// En modo normal ("System ON"), en el nRF52840 NO tienes que tocar ningún registro de reloj:
+// basta con ejecutar __WFE() / __WFI() y el regulador interno apaga automáticamente HFCLK:
+void nrf_system_on_idle_sleep(void) {
+    __SEV();
+    __WFE(); // Limpia el registro de eventos interno
+    __WFE(); // Duerme la CPU a ~1.5 uA manteniendo RAM y RTC activos!
+}`,
+        proDriver: `// En el nRF52840, la secuencia canónica de sueño por eventos es: __SEV(); __WFE(); __WFE();
+// para asegurarse de consumir cualquier evento pendiente antes de dormir.`,
+        asmInsight: 'Gracias a la gestión automática de relojes de Nordic, la CPU pasa de 1.5 uA a 64 MHz en menos de 3 microsegundos al saltar un evento.',
+        hardwareNote: 'Puedes apagar bancos individuales de 4 KB o 32 KB de los 256 KB de SRAM en NRF_POWER->RAM[n].POWER para ahorrar aún más corriente de retención.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040: Registro SLEEP_EN0 / SLEEP_EN1 en el Controlador CLOCKS (0x400080A0)
+// En el RP2040 tú decides exactamente qué dominios de reloj permanecen encendidos cuando
+// ambos núcleos ejecutan la instrucción WFI:
+#define CLOCKS_WAKE_EN0_REG  (*(volatile uint32_t *)0x400080A0UL)
+#define CLOCKS_SLEEP_EN0_REG (*(volatile uint32_t *)0x400080ACUL)
+#define CLOCKS_SLEEP_EN1_REG (*(volatile uint32_t *)0x400080B0UL)
+
+void rp2040_sleep_only_rtc_alive(void) {
+    // Apagar todos los relojes periféricos durante WFI excepto el reloj del RTC (Bit 25 de SLEEP_EN0):
+    CLOCKS_SLEEP_EN0_REG = (1UL << 25);
+    CLOCKS_SLEEP_EN1_REG = 0x00000000UL;
+    __asm volatile ("wfi");
+}`,
+        cmsisStruct: `#include "hardware/structs/clocks.h"
+#include "hardware/structs/scb.h"
+
+void rp2040_enter_dormant_mode_ info(void) {
+    // Además de SLEEP_EN, el RP2040 tiene el modo DORMANT en XOSC/ROSC que detiene
+    // por completo los osciladores hasta que un pin GPIO reciba un flanco externo.
+    scb_hw->scr |= M0PLUS_SCR_SLEEPDEEP_BITS;
+}`,
+        proDriver: `// En el RP2040, apagar los relojes de SRAM innecesarios y los buses USB/ADC en SLEEP_EN0/1
+// reduce el consumo en sueño en más de un 90%.`,
+        asmInsight: 'Los registros SLEEP_EN0 y SLEEP_EN1 actúan como máscaras automáticas de Clock Gating que solo se aplican mientras la CPU está en WFI/WFE.',
+        hardwareNote: 'En un sistema Dual-Core como el RP2040, el chip entra en estado de sueño profundo cuando AMBOS núcleos (Core 0 y Core 1) están en WFI/WFE.'
+      }
+    },
+    challenge: {
+      question: 'Reto de Presupuesto Energético — ¿Por Qué la Batería Dura 15 Días en Lugar de 3 Años?',
+      scenario:
+        'Diseñas un nodo sensor alimentado por una pila de litio de 240 mAh. Tu firmware despierta cada 1 segundo, lee un sensor en 2 ms (consumiendo 10 mA) y vuelve a entrar en modo Deep-Sleep durante los otros 998 ms. Según el Datasheet, el microcontrolador en Deep-Sleep consume solo 2 µA, por lo que calculaste una corriente media de ~22 µA (~1,2 años de vida). Sin embargo, al medir la placa con un amperímetro en Deep-Sleep descubres que consume 680 µA continuos. ¿Cuál es la causa física más común en el código de configuración?',
+      options: [
+        {
+          id: 'a',
+          label: 'Dejaste varios pines GPIO sin usar configurados como Entrada Digital flotante (con el Schmitt Trigger a media tensión conduciendo corriente entre VCC y GND), o dejaste un pin con resistencia Pull-Up interna conectado a una señal externa en estado LOW (0V) tirando corriente continua por la resistencia de 40 kΩ.',
+          isCorrect: true,
+          feedback: '¡Exacto! Un solo pin con Pull-Up interna (40 kΩ a 3.3V) conectado a un dispositivo externo que está en 0V drena por Ley de Ohm: I = 3.3V / 40.000 Ω = 82,5 µA las 24 horas del día, y un pin digital flotante puede drenar más de 150 µA en su buffer de entrada. Antes de entrar en Deep-Sleep hay que auditar el estado de cada pin GPIO y apagar periféricos analógicos como el ADC.'
+        },
+        {
+          id: 'b',
+          label: 'La instrucción __WFI() aumenta la frecuencia del reloj de la CPU al doble.',
+          isCorrect: false,
+          feedback: '__WFI() detiene el reloj de la CPU (0 Hz).'
+        },
+        {
+          id: 'c',
+          label: 'Las variables declaradas como const en la memoria Flash consumen 600 µA cada una.',
+          isCorrect: false,
+          feedback: 'La memoria Flash es no volátil (transistores de puerta flotante) y no consume corriente por tener constantes grabadas.'
+        }
+      ]
+    }
+  },
+
+  // =========================================================================
+  // MÓDULO 17: SEGURIDAD HARDWARE (MPU, SECURE BOOT, SHA-256 Y TRNG)
+  // =========================================================================
+  {
+    id: 17,
+    slug: 'seguridad-hardware-mpu-aislamiento-secure-boot-sha256-trng',
+    title: 'Módulo 17: Seguridad Hardware (MPU, Aislamiento de Memoria, Secure Boot y Criptografía)',
+    subtitle: 'Cómo blindar la memoria RAM y los periféricos con la Unidad de Protección de Memoria (MPU), prevenir ejecución de código en la Pila (XN) y verificar firmas de firmware con SHA-256 / TRNG',
+    level: 'Experto Industrial',
+    duration: '120 min',
+    recommendedLab: 'senior-rtos-can-pid-fault',
+    superficialMyth:
+      'Mucha gente cree que en un microcontrolador sin Linux (sin MMU virtual) cualquier función o tarea puede leer, escribir o ejecutar cualquier dirección de la RAM y de los periféricos sin que el hardware pueda impedirlo.',
+    overwhelmingDatasheet:
+      'Los manuales técnicos y la norma ECSS-Q-ST-80C hablan de "Memory Protection Unit (MPU->RBAR, MPU->RASR), Execute Never (XN Bit 28), Privileged vs Unprivileged Thread Mode (CONTROL Register), Spatial Partitioning, True Random Number Generator (TRNG), Constant-Time Comparison y ECDSA / SHA-256 Secure Boot".',
+    theBridgeExplanation:
+      'Aunque un microcontrolador no tenga memoria virtual (MMU), los chips modernos incluyen un guardián físico en el bus llamado MPU (Memory Protection Unit) —o PMP en RISC-V—. La MPU te permite definir hasta 8 o 16 "vallas electrónicas" (Regiones de Memoria) con permisos estrictos de Lectura/Escritura/Ejecución. Por ejemplo: puedes marcar la Pila (Stack) como "Execute Never (XN=1)" para que ningún ataque de Buffer Overflow pueda inyectar y ejecutar instrucciones desde la RAM; y puedes ejecutar una tarea de comunicaciones en modo No-Privilegiado dándole permiso únicamente a su propio array de RAM. Si esa tarea sufre un bug e intenta escribir en la RAM de la tarea de Propulsión o tocar el registro de un motor, ¡la MPU corta el acceso en el mismo ciclo de reloj y dispara una excepción MemManage_Handler antes de que el dato toque la memoria!',
+    keyTakeaways: [
+      {
+        title: '1. La Unidad de Protección de Memoria (MPU) y el Bit Execute-Never (XN)',
+        concept: 'En ARM Cortex-M, cada región de la MPU se configura con dos registros en 0xE000ED9C: MPU->RBAR (Base Address: dónde empieza la región) y MPU->RASR (Attribute and Size: tamaño potencia de 2, permisos de acceso AP[2:0] para modo Privilegiado/No-Privilegiado y el Bit 28 XN = Execute Never). Activar XN=1 en toda la región de SRAM (0x20000000) impide por hardware que la CPU pueda saltar a ejecutar código malicioso inyectado en un buffer de RAM.',
+        codeSnippet: `// Configuración del registro MPU->RASR en ARM Cortex-M:\n// Bit 28 (XN=1: Prohibido ejecutar código aquí!), Bits [26:24] AP (Permisos R/W),\n// Bits [5:1] SIZE (Tamaño de la región = 2^(SIZE + 1)), Bit 0 (ENABLE=1):\n#define MPU_RASR_XN_BIT     (1UL << 28)\n#define MPU_RASR_AP_RW_PRIV (1UL << 24) // RW en Privilegiado, Prohibido en No-Privilegiado`
+      },
+      {
+        title: '2. Comparación Criptográfica en Tiempo Constante (Defensa contra Side-Channel Timing Attack)',
+        concept: 'Si verificas un Hash SHA-256, un MAC o una clave en un Bootloader usando memcmp() o un bucle que hace "if (a[i] != b[i]) return false;", la función tarda pocos nanosegundos si falla en el primer byte (i=0) y muchos más si acierta los primeros 15 bytes y falla en el byte 16. Un atacante con un osciloscopio o midiendo el tiempo de respuesta por UART puede adivinar la firma byte a byte en pocos minutos! La solución obligatoria es acumular el XOR de TODOS los bytes en tiempo constante sin ningún return temprano.',
+        codeSnippet: `// Comparación de 32 bytes (Hash SHA-256 / HMAC) en TIEMPO CONSTANTE (0 saltos condicionales):\nbool crypto_constant_time_equal(const uint8_t *a, const uint8_t *b, uint32_t len) {\n    volatile uint8_t diff = 0U;\n    for (uint32_t i = 0UL; i < len; i++) {\n        diff |= (uint8_t)(a[i] ^ b[i]); // Acumula diferencias con XOR y OR en cada byte\n    }\n    return (diff == 0U); // ¡Tarda exactamente los mismos ciclos acierte 0 bytes o 31 bytes!\n}`
+      },
+      {
+        title: '3. Generador de Números Aleatorios Verdaderos por Ruido Térmico (Hardware TRNG)',
+        concept: 'La función rand() de la librería estándar de C es un generador pseudoaleatorio (PRNG): si arranca con la misma semilla, produce exactamente la misma secuencia en cada encendido (fatal para generar nonces o claves criptográficas). Los microcontroladores modernos integran un periférico TRNG (True Random Number Generator) que digitaliza el ruido térmico cuántico de osciladores en anillo o diodos internos para entregar entropía física real.',
+        codeSnippet: `// Jamás uses rand() para seguridad; lee el registro de entropía física del periférico TRNG:\nuint32_t hw_trng_get_entropy_word(void);`
+      }
+    ],
+    mcuCode: {
+      atmega328p: {
+        rawPointer: `// ATmega328P: Registro SPMCSR (0x57) y Bits de Bloqueo de Seguridad de Flash (Lock Bits)
+// Aunque el AVR no tiene MPU de RAM, protege su firmware mediante los Lock Bits hardware
+// (LB1, LB2, BLB0, BLB1) que bloquean la lectura externa de la Flash por el conector ISP
+// e impiden que la aplicación pueda sobrescribir el sector del Bootloader:
+#define SPMCSR_REG (*(volatile uint8_t *)0x57)
+
+// Comparación de token de autenticación de 16 bytes en tiempo constante en AVR:
+uint8_t avr_verify_token_constant_time(const uint8_t *rx_tok, const uint8_t *secret_tok) {
+    volatile uint8_t diff = 0U;
+    for (uint8_t i = 0U; i < 16U; i++) {
+        diff |= (uint8_t)(rx_tok[i] ^ secret_tok[i]);
+    }
+    return (diff == 0U) ? 1U : 0U;
+}`,
+        cmsisStruct: `#include <avr/io.h>
+#include <avr/boot.h>
+
+// En producción se programan los Lock Bits a 0xFC (Modo 3) para impedir que alguien
+// conecte un programador USBasp y extraiga tu binario .hex con avrdude:
+// LOCKBITS = (LB_MODE_3 & BLB0_MODE_2 & BLB1_MODE_2);`,
+        proDriver: `// Borrado Seguro de Claves en RAM (Zeroization): Si usas memset(key, 0, 16) al final de una función,
+// el compilador con -O2 lo elimina porque la variable key ya no se vuelve a usar ("Dead Store Elimination").
+// Usa siempre un puntero volatile para borrar claves criptográficas de la SRAM!`,
+        asmInsight: 'La función avr_verify_token_constant_time ejecuta exactamente 16 iteraciones de LD + LD + EOR + OR sin ninguna rama intermedia.',
+        hardwareNote: 'Una vez activados los Lock Bits LB1=0 y LB2=0 en el ATmega328P, la única forma de desbloquearlos es ejecutar un Chip Erase completo que destruye toda la Flash.'
+      },
+      stm32f401: {
+        rawPointer: `// STM32F401 (Cortex-M4): Configuración de la MPU Hardware (0xE000ED90) para Blindar la SRAM
+#define MPU_CTRL_REG (*(volatile uint32_t *)0xE000ED94UL)
+#define MPU_RNR_REG  (*(volatile uint32_t *)0xE000ED98UL)
+#define MPU_RBAR_REG (*(volatile uint32_t *)0xE000ED9CUL)
+#define MPU_RASR_REG (*(volatile uint32_t *)0xE000EDA0UL)
+
+void stm32_mpu_lock_sram_execute_never(void) {
+    MPU_CTRL_REG = 0UL;             // 1. Deshabilitar MPU antes de configurar regiones
+    MPU_RNR_REG  = 0UL;             // 2. Seleccionar Región 0
+    MPU_RBAR_REG = 0x20000000UL;    // 3. Base de la SRAM (0x20000000)
+    // 4. Bit 28 (XN=1: Prohibido ejecutar código en RAM!), AP=011 (RW), SIZE=16 (2^(16+1) = 128 KB), ENABLE=1:
+    MPU_RASR_REG = (1UL << 28) | (3UL << 24) | (16UL << 1) | (1UL << 0);
+    // 5. Habilitar MPU con PRIVDEFENA (Bit 2 = 1) y Enable (Bit 0 = 1):
+    MPU_CTRL_REG = (1UL << 2) | (1UL << 0);
+    __asm volatile ("dsb");
+    __asm volatile ("isb");
+}`,
+        cmsisStruct: `#include "stm32f4xx.h"
+
+// Creación de una "Guarda de Fondo de Pila" (Stack Guard Region) de 32 bytes Sin Acceso (AP=000):
+// Si la pila crece demasiado y toca esos 32 bytes, la MPU dispara MemManage_Handler al instante!
+void stm32_mpu_set_stack_guard_32bytes(uint32_t stack_bottom_aligned32) {
+    MPU->RNR  = 1UL;
+    MPU->RBAR = stack_bottom_aligned32;
+    MPU->RASR = (1UL << 28) | (0UL << 24) /* AP=000 No Access! */ | (4UL << 1) /* 2^(4+1)=32B */ | 1UL;
+}`,
+        proDriver: `// Para cumplir con la cláusula ECSS-Q-ST-80C 6.2.2.10 (evitar que una tarea Categoría D corrompa
+// a una tarea Categoría A en el mismo chip), FreeRTOS-MPU reconfigura las regiones de la MPU
+// en cada cambio de contexto para que cada tarea solo pueda tocar su propia partición de SRAM.`,
+        asmInsight: 'Tras escribir en MPU->CTRL es obligatorio ejecutar la pareja de barreras DSB + ISB para que el pipeline aplique los nuevos permisos desde la siguiente instrucción.',
+        hardwareNote: 'La dirección base (RBAR) de cualquier región MPU en ARMv7-M debe estar alineada a un múltiplo exacto de su propio tamaño.'
+      },
+      esp32c3: {
+        rawPointer: `// ESP32-C3 (RISC-V): PMP (Physical Memory Protection), TRNG (0x600260B0) y Acelerador SHA-256
+// El ESP32-C3 incluye un Generador Físico de Números Aleatorios (TRNG) en 0x600260B0
+// y hasta 16 regiones de protección de memoria física PMP en los registros CSR pmpcfg / pmpaddr!
+#define RNG_DATA_REG (*(volatile uint32_t *)0x600260B0UL)
+
+uint32_t esp32c3_hw_trng_read(void) {
+    return RNG_DATA_REG; // Devuelve 32 bits de entropía física real!
+}`,
+        cmsisStruct: `// Además, el ESP32-C3 incluye aceleradores criptográficos hardware en silicio para
+// SHA-256, AES-128/256, RSA y ECDSA Secure Boot v2, más cifrado transparente de Flash (XTS-AES):
+#include <stdint.h>
+
+// Borrado seguro de un buffer de clave en RAM impidiendo que el compilador optimice el bucle:
+void esp32c3_secure_zeroize(void *secret_buf, uint32_t len) {
+    volatile uint8_t *p = (volatile uint8_t *)secret_buf;
+    while (len-- > 0UL) {
+        *p++ = 0U;
+    }
+}`,
+        proDriver: `// En el ESP32-C3, "Secure Boot v2" graba el hash de tu clave pública RSA-3072 / ECDSA en los
+// eFuses de una sola escritura del silicio: el ROM Bootloader verifica la firma antes de arrancar.`,
+        asmInsight: 'En RISC-V, la protección de memoria física (PMP) usa los registros CSR pmpcfg0..3 y pmpaddr0..15 con bits R, W, X y bloqueo permanente (L).',
+        hardwareNote: 'Para que RNG_DATA_REG tenga máxima entropía física en el ESP32-C3, el oscilador RC de alta frecuencia o el ADC SAR deben estar encendidos.'
+      },
+      nrf52840: {
+        rawPointer: `// nRF52840: Periférico TRNG Físico (NRF_RNG en 0x4000D000) y Unidad ACL de Protección de Flash
+#define RNG_TASKS_START   (*(volatile uint32_t *)0x4000D000UL)
+#define RNG_EVENTS_VALRDY (*(volatile uint32_t *)0x4000D100UL)
+#define RNG_CONFIG_REG    (*(volatile uint32_t *)0x4000D504UL)
+#define RNG_VALUE_REG     (*(volatile uint32_t *)0x4000D508UL)
+
+uint8_t nrf_trng_get_random_byte(void) {
+    RNG_CONFIG_REG    = 1UL; // Bit 0 (DERCEN=1): Activa corrección digital de sesgo (Bias Correction)
+    RNG_EVENTS_VALRDY = 0UL;
+    RNG_TASKS_START   = 1UL;
+    while (RNG_EVENTS_VALRDY == 0UL) { }
+    return (uint8_t)(RNG_VALUE_REG & 0xFFUL);
+}`,
+        cmsisStruct: `#include "nrf.h"
+
+// El nRF52840 incorpora además el bloque periférico ACL (Access Control Lists) para bloquear
+// la escritura/borrado del Bootloader en Flash y un coprocesador ARM CryptoCell-310 completo!
+void nrf_acl_lock_bootloader_flash(uint32_t boot_addr, uint32_t boot_size) {
+    NRF_ACL->ACL[0].ADDR = boot_addr;
+    NRF_ACL->ACL[0].SIZE = boot_size;
+    NRF_ACL->ACL[0].PERM = (1UL << 1); // Bit 1 (WRITE=1): Prohibido escribir o borrar esta región!
+}`,
+        proDriver: `// Una vez configurado un registro de la unidad ACL en el nRF52840, queda bloqueado en silicio
+// y ni siquiera el código en modo Privilegiado puede desactivar esa protección hasta el próximo Reset.`,
+        asmInsight: 'El coprocesador ARM CryptoCell-310 integrado en el nRF52840 ejecuta SHA-256, AES-CCM y firmas de curva elíptica Ed25519/ECDSA P-256 en hardware.',
+        hardwareNote: 'Activa siempre el bit DERCEN (Digital Error Correction) en NRF_RNG->CONFIG para eliminar cualquier correlación estadística del ruido térmico.'
+      },
+      rp2040: {
+        rawPointer: `// RP2040 (Cortex-M0+): MPU de 8 Regiones (0xE000ED90) y Entropía del Oscilador en Anillo (ROSC)
+#define ROSC_RANDOMBIT_REG (*(volatile uint32_t *)0x4006001CUL)
+#define M0PLUS_MPU_CTRL    (*(volatile uint32_t *)0xE000ED94UL)
+
+uint32_t rp2040_rosc_collect_32_random_bits(void) {
+    uint32_t rnd = 0UL;
+    for (uint32_t i = 0UL; i < 32UL; i++) {
+        rnd = (rnd << 1U) | (ROSC_RANDOMBIT_REG & 1UL);
+    }
+    return rnd;
+}`,
+        cmsisStruct: `#include "hardware/structs/mpu.h"
+
+// Cada uno de los dos núcleos Cortex-M0+ del RP2040 tiene su propia MPU independiente de 8 regiones,
+// permitiendo aislar completamente la memoria que puede tocar el Core 1 respecto al Core 0!
+void rp2040_enable_core_mpu(void) {
+    mpu_hw->ctrl = M0PLUS_MPU_CTRL_PRIVDEFENA_BITS | M0PLUS_MPU_CTRL_ENABLE_BITS;
+}`,
+        proDriver: `// Aislar el Core 1 con su propia MPU en el RP2040 permite ejecutar código de terceros o de
+// menor criticidad en el segundo núcleo con la garantía física de que no puede corromper al Core 0.`,
+        asmInsight: 'En Cortex-M0+ (ARMv6-M), el tamaño mínimo de región MPU es de 256 bytes (a diferencia de los 32 bytes de ARMv7-M).',
+        hardwareNote: 'En el RP2040, si una instrucción viola la MPU de su núcleo, el procesador salta inmediatamente a HardFault_Handler.'
+      }
+    },
+    challenge: {
+      question: 'Reto de Ciberseguridad Embebida — Ataque de Canal Lateral por Tiempo (Timing Attack) y Stack Execution',
+      scenario:
+        'En el Bootloader de un dispositivo industrial recibes por UART una imagen de firmware junto con su código de autenticación HMAC-SHA256 de 32 bytes. Para comprobar si la firma es auténtica, tu compañero escribe: if (memcmp(hmac_recibido, hmac_calculado, 32) == 0) { actualizar_flash(); }. Además, el buffer donde se recibe el paquete vive en la pila (Stack en SRAM) sin la MPU activada. ¿Qué dos vulnerabilidades críticas de seguridad acaba de introducir?',
+      options: [
+        {
+          id: 'a',
+          label: '1) memcmp() se detiene en el primer byte que no coincide, permitiendo a un atacante medir con precisión de microsegundos cuánto tarda el Bootloader en rechazar el paquete y adivinar los 32 bytes del HMAC uno por uno (Timing Attack); y 2) Sin la MPU con el bit XN (Execute Never) en la SRAM, un desbordamiento del buffer en la pila permite saltar a ejecutar código malicioso directamente desde la RAM.',
+          isCorrect: true,
+          feedback: '¡Auditoría de seguridad de nivel experto! Toda comparación de hashes, MACs o contraseñas debe hacerse siempre con una función en tiempo constante (acumulando a[i] ^ b[i] en los 32 bytes sin salir antes), y la SRAM debe tener activo el bit 28 (XN = Execute Never) en el registro MPU->RASR.'
+        },
+        {
+          id: 'b',
+          label: 'memcmp() es 100% seguro contra ataques de tiempo porque examina los 32 bytes en paralelo en un microcontrolador.',
+          isCorrect: false,
+          feedback: 'memcmp() compara byte a byte (o palabra a palabra) y retorna en cuanto encuentra la primera discrepancia, filtrando cuántos bytes iniciales eran correctos.'
+        },
+        {
+          id: 'c',
+          label: 'Los procesadores ARM Cortex-M prohíben por defecto ejecutar instrucciones desde la SRAM (0x20000000) sin necesidad de configurar la MPU.',
+          isCorrect: false,
+          feedback: 'Por defecto la región SRAM (0x20000000) SI es ejecutable en Cortex-M; tienes que activar explícitamente el bit XN (Bit 28 de MPU->RASR) en la MPU para prohibirlo.'
         }
       ]
     }
