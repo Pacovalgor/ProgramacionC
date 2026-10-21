@@ -1,5 +1,9 @@
 # Programación C en Sistemas Embebidos, Arquitectura de Microcontroladores y Normativa Aeroespacial (ECSS / NASA)
 
+> 🚀 **Plataforma Interactiva en Vivo (GitHub Pages):**  
+> ### 👉 **[https://pacovalgor.github.io/ProgramacionC/](https://pacovalgor.github.io/ProgramacionC/)**
+> *(Haz clic en el enlace superior para abrir directamente el curso interactivo, los 10 laboratorios de hardware y los editores C en vivo desde tu navegador).*
+
 Plataforma interactiva de aprendizaje, simulador de hardware a nivel de registro y libro de texto de ingeniería en español diseñado para dominar la **Programación en C para Sistemas Embebidos** desde los cimientos de la memoria (`Módulo 0`) hasta el diseño de firmware crítico aeroespacial y de defensa (`Módulo 11`).
 
 ---
