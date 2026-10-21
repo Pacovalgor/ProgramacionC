@@ -122,22 +122,31 @@ export const COURSE_MODULES: CourseModule[] = [
       'Toda la magia de C se resume en una sola idea: la memoria del microcontrolador es un casillero gigante numerado byte a byte (en hexadecimal: 0x00, 0x01, 0x02...). 1) Una VARIABLE es ponerle nombre humano a una casilla. 2) Una FUNCIÓN es un bloque de instrucciones reutilizable al que es mejor pasarle la dirección de los datos (un puntero) que copiar cientos de bytes. 3) Un PUNTERO es simplemente una variable que guarda el número de casilla (la dirección) de otra variable: con "&" preguntas en qué casilla vive y con "*" abres esa casilla. 4) Un STRUCT es un molde de varias casillas seguidas, y la flecha "->" sirve para acceder a una casilla del molde a través de un puntero.',
     keyTakeaways: [
       {
-        title: '1. Variables, Bytes y Hexadecimal (Por qué usamos 0x...)',
-        concept: 'Cada byte tiene 8 bits. Escribir 32 bits en binario (0b0100000000000010...) es propenso a errores humanos. Como 4 bits (1 nibble) van de 0 a 15 (0..9, A..F), 1 dígito hexadecimal representa exactamente 4 bits, y 2 dígitos hexadecimales (ej. 0xFF) representan exactamente 1 byte (8 bits).',
-        codeSnippet: `uint8_t  un_byte     = 0xFFU;        // 8 bits  (1 byte  en RAM, 0..255)\nuint16_t dos_bytes   = 0x1234U;      // 16 bits (2 bytes en RAM, 0..65535)\nuint32_t cuatro_bytes = 0x40020014UL; // 32 bits (4 bytes en RAM)`
+        title: '1. Variables, Bytes, Hexadecimal (0x...) y el Operador sizeof()',
+        concept:
+          'Cada byte tiene 8 bits. Un dígito hexadecimal representa exactamente 4 bits (1 nibble) y dos dígitos (0xFF) representan exactamente 1 byte. Además, sizeof(T) NO es una función que gaste ciclos de CPU en tiempo de ejecución: es un operador del compilador que se evalúa durante la compilación con 0 ciclos de CPU y 0 bytes de RAM.',
+        codeSnippet: `uint8_t  un_byte     = 0xFFU;        // 8 bits  (1 byte  en RAM, 0..255)\nuint16_t dos_bytes   = 0x1234U;      // 16 bits (2 bytes en RAM, 0..65535)\nuint32_t cuatro_bytes = 0x40020014UL; // 32 bits (4 bytes en RAM)\n\n// sizeof() se resuelve al compilar:\nuint32_t tam_int = sizeof(uint32_t); // El compilador escribe directamente un 4`
       },
       {
-        title: '2. Punteros y Funciones: Operador Dirección (&) vs Contenido (*)',
-        concept: 'Si pasas una variable normal a una función, C hace una copia temporal (Paso por Valor) y no cambia la original. Si le pasas su dirección con "&" (Paso por Referencia mediante Puntero), la función usa "*" para modificar la variable original directamente en su casilla de RAM.',
+        title: '2. Punteros Físicos: Operador Dirección (&) vs Desreferencia (*)',
+        concept:
+          'Si pasas una variable normal a una función, C hace una copia temporal (Paso por Valor) y no cambia la original. Si le pasas su dirección con "&" (Paso por Referencia mediante Puntero), la función usa "*" para entrar dentro de esa casilla física de memoria y modificar el valor original en su casilla de RAM.',
         codeSnippet: `void triplicar_en_sitio(uint32_t *p_num) {\n    *p_num = (*p_num) * 3U; // '*' entra en la dirección y cambia el valor real\n}\n\nvoid main_demo(void) {\n    uint32_t rpm = 100U;\n    triplicar_en_sitio(&rpm); // '&' entrega la dirección donde vive 'rpm'\n    // ¡Ahora rpm vale 300!\n}`
       },
       {
-        title: '3. Estructuras (struct), typedef y el Operador Flecha (->)',
-        concept: 'Un struct agrupa varias variables en direcciones contiguas de memoria. Cuando tienes la estructura usas el punto (sensor.temp), pero cuando tienes un PUNTERO a la estructura usas la flecha (p_sensor->temp). ¡Así es exactamente como se controlan los periféricos en C!',
-        codeSnippet: `typedef struct {\n    uint32_t MODER; // Offset +0 bytes\n    uint32_t ODR;   // Offset +4 bytes\n} Puerto_t;\n\nPuerto_t mi_puerto;\nPuerto_t *ptr = &mi_puerto;\nmi_puerto.ODR = 1U; // Acceso directo con PUNTO (.)\nptr->ODR      = 1U; // Acceso por puntero con FLECHA (->) ¡Equivale a (*ptr).ODR!`
+        title: '3. Despiece del Puntero MMIO, "volatile", "const *" vs "* const" y "(void)var"',
+        concept:
+          'Despiezamos la fórmula más importante de C embebido (*(volatile uint32_t *)0x40020014UL): 1) El número 0x40020014UL es la dirección física de silicio. 2) (volatile uint32_t *) es el casteo a puntero que le dice al compilador "esta casilla cambia sola por hardware, nunca la borres ni la guardes en caché". 3) El asterisco exterior * entra en el registro para leer o escribir. Además, "const uint32_t *p" indica que el dato en Flash es constante, mientras que "uint32_t * const p" indica que la dirección del registro es fija. Finalmente, "(void)var;" se usa para silenciar advertencias de variables no usadas y para realizar lecturas dummy de bus.',
+        codeSnippet: `// 1. Despiece canónico del registro de hardware:\n#define GPIOA_ODR (*(volatile uint32_t *)0x40020014UL)\n\n// 2. Diferencia entre const * y * const:\nconst uint8_t *p_flash = &tabla_sensores[0];  // Dato constante (en Flash), puntero móvil\nuint32_t * const p_reg = (uint32_t *)0x40020014UL; // Dirección fija en silicio, dato variable\n\n// 3. Silenciar variable no usada o lectura dummy de bus:\n(void)p_flash; // Silencia el warning del compilador -Wunused-variable`
       },
       {
-        title: '4. Sufijos de Literales (U, UL) y las 6 Operaciones Sagradas de Bits',
+        title: '4. Estructuras (struct), typedef, Padding y el Operador Flecha (->)',
+        concept:
+          'Un struct agrupa varias variables en direcciones contiguas de memoria. Cuando tienes la estructura usas el punto (sensor.temp), pero cuando tienes un PUNTERO a la estructura usas la flecha (p_sensor->temp). ¡Así es exactamente como se controlan los periféricos en C!',
+        codeSnippet: `typedef struct {\n    volatile uint32_t MODER; // Offset +0 bytes\n    volatile uint32_t ODR;   // Offset +4 bytes\n} Puerto_t;\n\nPuerto_t * const p_puerto = (Puerto_t *)0x40020000UL;\np_puerto->ODR = 1U; // Acceso por puntero con FLECHA (->) ¡Equivale a (*p_puerto).ODR!`
+      },
+      {
+        title: '5. Sufijos de Literales (U, UL) y las 6 Operaciones Sagradas de Bits',
         concept:
           'En C estándar, un número sin sufijo (como 1) es un entero con signo (signed int). Desplazarlo al bit 31 (1 << 31) provoca desbordamiento de signo y Comportamiento Indefinido (Undefined Behavior). Por eso en sistemas embebidos SIEMPRE usamos sufijos: "U" (Unsigned) y "UL" (Unsigned Long, 32 bits garantizados en cualquier arquitectura). Con ellos dominas las 6 operaciones elementales sobre cualquier registro.',
         codeSnippet: `// Las 6 Operaciones Sagradas para copiar en el Cuaderno Físico:\nREG |=  (1UL << n);             // 1. SET: Poner bit n a 1 (x | 0 = x)\nREG &= ~(1UL << n);             // 2. CLEAR: Poner bit n a 0 con NOT (~)\nREG ^=  (1UL << n);             // 3. TOGGLE: Conmutar bit n (0->1 o 1->0 con XOR)\nuint32_t b = (REG >> n) & 1UL;  // 4. READ: Extraer el valor del bit (devuelve 0 o 1)\nif ((REG & (1UL << n)) != 0UL)  // 5. TEST 1: Comprobar si el bit está activo\nif ((REG & (1UL << n)) == 0UL)  // 6. TEST 0: Comprobar si el bit está en bajo (ej. pulsador)`
@@ -383,9 +392,10 @@ typedef struct {
       'En sistemas embebidos NO existe un sistema operativo intermediario: un "registro de hardware" no es más que una dirección física de memoria cuyos bits están soldados físicamente a cables y transistores dentro del chip. Si dominas 4 operaciones de bits y entiendes cómo convertir una dirección del Datasheet (ej. 0x40020014) en un puntero de C, puedes controlar cualquier chip del mundo.',
     keyTakeaways: [
       {
-        title: '1. Por qué prohibimos "int" y usamos <stdint.h>',
-        concept: 'Un "int" mide 16 bits en un ATmega328P pero 32 bits en un STM32 o ESP32. En hardware, el tamaño del registro es fijo (8 o 32 bits), por lo que siempre usamos uint8_t, uint16_t y uint32_t.',
-        codeSnippet: `#include <stdint.h>\nuint8_t  reg_avr   = 0x25U;        // Exactamente 8 bits (1 byte)\nuint32_t reg_stm32 = 0x40020014UL; // Exactamente 32 bits (4 bytes)`
+        title: '1. Tipos de Ancho Fijo (<stdint.h>) y Desplazamiento Lógico vs Aritmético (>>)',
+        concept:
+          'Un "int" mide 16 bits en ATmega328P pero 32 bits en STM32/ESP32, por lo que siempre usamos tipos exactos de <stdint.h>. Además, existe una diferencia vital en el desplazamiento a la derecha (>>): en tipos sin signo (uint32_t) la CPU ejecuta un DESPLAZAMIENTO LÓGICO (rellena los huecos con ceros); en cambio, en tipos con signo (int32_t) negativos ejecuta un DESPLAZAMIENTO ARITMÉTICO (rellena con unos para preservar el signo negativo), corrompiendo cualquier máscara si olvidas la "U" o "UL".',
+        codeSnippet: `// 1. Desplazamiento Lógico (uint32_t): Rellena con 0s (Correcto en Hardware)\nuint32_t u_val = 0x80000000UL;\nuint32_t u_res = u_val >> 4;  // 0x08000000 (Los 4 bits superiores son 0000)\n\n// 2. Desplazamiento Aritmético (int32_t negativo): Rellena con 1s (Peligro)\nint32_t  s_val = -2147483648; // 0x80000000 con bit de signo\nint32_t  s_res = s_val >> 4;  // 0xF8000000 ¡Los 4 bits superiores son 1111!`
       },
       {
         title: '2. Campos Multi-Bit y Librería de Macros Blindada (MISRA-C)',
@@ -766,6 +776,12 @@ void __not_in_flash_func(fast_control_loop)(void) {
         title: '3. Operaciones Atómicas: Por qué ODR |= (1<<5) es peligroso con Interrupciones',
         concept: 'Hacer ODR |= (1<<5) obliga a la CPU a: 1) Leer ODR en un registro temporal, 2) Hacer OR, 3) Escribir en ODR. Si una interrupción salta entre el paso 1 y el 3 y modifica otro pin del Puerto A, al volver al paso 3 machacarás el cambio de la interrupción. Los registros BSRR / W1TS / OUTSET hacen el cambio en 1 solo golpe atómico.',
         codeSnippet: `// PELIGROSO si una interrupción usa otro pin de GPIOA:\nGPIOA->ODR |= (1UL << 5);          // 3 instrucciones (Read-Modify-Write)\n\n// SEGURO E INDUSTRIAL (1 sola instrucción de escritura):\nGPIOA->BSRR = (1UL << 5);          // Enciende PA5\nGPIOA->BSRR = (1UL << (5U + 16U)); // Apaga PA5 (bit 21)`
+      },
+      {
+        title: '4. Tipos Enumerados (enum) para Configuración de Hardware sin Números Mágicos',
+        concept:
+          'Un enum en C define una lista de constantes enteras con nombres legibles (por defecto 0, 1, 2...). En firmware profesional y normativa aeroespacial (MISRA-C:2012 Regla 10.1) está terminantemente prohibido pasar "números mágicos" a las funciones (ej. gpio_set_pull(5, 2) -> ¿qué significa el 2?). Usar "typedef enum" autoverifica los parámetros en compilación y hace el driver 100% autodocumentado.',
+        codeSnippet: `// 1. Definición del enum de hardware en la cabecera (.h):\ntypedef enum {\n    GPIO_PULL_NONE = 0U,\n    GPIO_PULL_UP   = 1U,\n    GPIO_PULL_DOWN = 2U\n} gpio_pull_t;\n\n// 2. La función rechaza cualquier número arbitrario que no pertenezca al enum:\nvoid gpio_set_pull(uint8_t pin, gpio_pull_t pull_mode);\n\n// Llamada limpia y legible:\ngpio_set_pull(5, GPIO_PULL_UP);`
       }
     ],
     mcuCode: {
@@ -1737,6 +1753,12 @@ void rp2040_adc_dma_burst(uint16_t *dst_ram, uint32_t count) {
         title: '3. Cómo funciona un RTOS (FreeRTOS) por dentro sin magia',
         concept: 'Cuando el temporizador SysTick salta cada 1 ms, la interrupción PendSV guarda los registros R4-R11 de la Tarea A en la pila de la Tarea A, guarda el puntero de pila (PSP) en el bloque TCB de la Tarea A, carga el PSP de la Tarea B, restaura R4-R11 de la Tarea B y retorna. ¡Acabas de cambiar de hilo!',
         codeSnippet: `// Esqueleto real del cambio de contexto en ARM Cortex-M (PendSV):\n// 1. MRS R0, PSP          (Lee Stack Pointer de la tarea saliente)\n// 2. STMDB R0!, {R4-R11}  (Guarda registros en su pila RAM)\n// 3. Cambia al TCB de la siguiente tarea de mayor prioridad lista\n// 4. LDMIA R0!, {R4-R11}  (Recupera registros de la nueva tarea)\n// 5. MSR PSP, R0          (Actualiza el Stack Pointer y salta a ella!)`
+      },
+      {
+        title: '4. Funciones "static inline" en Archivos de Cabecera (.h)',
+        concept:
+          'En C estándar, escribir el cuerpo de una función en un archivo .h está prohibido porque genera el error del linker "multiple definition of..." si varios archivos .c lo incluyen. La única excepción formal es "static inline": 1) "inline" sugiere al compilador incrustar el código máquina directamente en el punto de llamada eliminando el coste de CALL/RET y preservando la velocidad, y 2) "static" le da visibilidad privada local a cada unidad de compilación, resolviendo el conflicto del linker.',
+        codeSnippet: `// En mi_libreria.h:\nstatic inline uint32_t leer_pin_rapido(volatile const uint32_t *idr, uint8_t pin) {\n    return (*idr >> pin) & 1UL;\n}`
       }
     ],
     mcuCode: {

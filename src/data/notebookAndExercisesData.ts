@@ -173,6 +173,46 @@ export const MODULE_EXTENDED_DATA: Record<number, ModuleExtendedContent> = {
         siliconReality:
           'Se ejecutan directamente en la Unidad Aritmético-Lógica (ALU) del microcontrolador en 1 ciclo de reloj de máquina.',
         exampleToCopy: 'REG |= (1UL << 5);  REG &= ~(1UL << 5);  REG ^= (1UL << 5);'
+      },
+      {
+        term: 'Despiece del Puntero MMIO (*(volatile uint32_t *)0x...) en 3 Capas',
+        definition:
+          'El modismo canónico para controlar registros de hardware desde C: Capa 1: Dirección física hexadecimal (0x40020014UL). Capa 2: Casteo a puntero volátil (volatile uint32_t *). Capa 3: Operador exterior de desreferencia (*) para escribir o leer en silicio.',
+        siliconReality:
+          'El número de la Capa 1 viaja directamente por las pistas del bus de direcciones AHB/APB activando los transistores del periférico.',
+        exampleToCopy: '#define GPIOA_ODR (*(volatile uint32_t *)0x40020014UL)'
+      },
+      {
+        term: 'Calificador "volatile" Básico en Registros de Silicio',
+        definition:
+          'Instrucción al compilador que prohíbe optimizar, almacenar en caché interna de la CPU (R0..R12) o eliminar lecturas y escrituras consecutivas sobre una dirección de memoria.',
+        siliconReality:
+          'Sin volatile, el optimizador (-O2) elimina escrituras consecutivas considerándolas "código muerto" o cachea una lectura, impidiendo detectar cambios externos en los pines.',
+        exampleToCopy: 'volatile uint32_t *p_pin_status = (volatile uint32_t *)0x40020010UL;'
+      },
+      {
+        term: 'Punteros con const: const T * vs T * const',
+        definition:
+          'La posición de "const" respecto al asterisco fija qué elemento no puede cambiar: "const uint8_t *p" indica que el dato apuntado es constante (memoria Flash ROM), mientras que "uint32_t * const p" indica que la dirección de memoria es fija y permanente (dirección de un registro MMIO).',
+        siliconReality:
+          'const T * protege datos grabados en Flash de ser sobrescritos. T * const asegura que el puntero siempre señale al periférico sin desviarse por accidente.',
+        exampleToCopy: 'const uint8_t *lut = &sin_table[0];  uint32_t * const reg = (uint32_t *)0x40020014UL;'
+      },
+      {
+        term: 'Instrucción (void)variable (Silenciamiento y Dummy Read)',
+        definition:
+          'Técnica que cumple dos objetivos: 1) Silenciar advertencias del compilador (-Wunused-variable o -Wunused-parameter) en interfaces estrictas. 2) Forzar lecturas dummy en buses de silicio (APB/AHB) para asegurar la propagación de reloj tras activar un periférico en RCC.',
+        siliconReality:
+          'Una lectura dummy como (void)RCC->AHB1ENR fuerza a la CPU a esperar 2 ciclos de bus hasta que la señal de reloj llega físicamente al periférico antes de usarlo.',
+        exampleToCopy: '(void)unused_arg;  (void)RCC->AHB1ENR; // Espera de bus obligatoria'
+      },
+      {
+        term: 'Operador sizeof() en Tiempo de Compilación',
+        definition:
+          'Operador intrínseco del compilador que devuelve el tamaño en bytes de un tipo o variable. NO es una función y se resuelve íntegramente al compilar.',
+        siliconReality:
+          'Cuesta 0 ciclos de CPU y 0 bytes de RAM en tiempo de ejecución: el compilador inserta directamente el número constante (ej. un 4 para uint32_t).',
+        exampleToCopy: 'uint32_t len = sizeof(uint32_t); // El compilador escribe un 4 literal'
       }
     ],
     goldenRules: [
@@ -185,6 +225,26 @@ export const MODULE_EXTENDED_DATA: Record<number, ModuleExtendedContent> = {
         title: 'Las 6 Operaciones Sagradas de Bits para Copiar a la Libreta',
         formulaOrRule: 'SET: |= (1UL<<n) | CLEAR: &= ~(1UL<<n) | TOGGLE: ^= (1UL<<n) | READ: (>>n)&1UL | TEST_1: (&(1UL<<n))!=0 | TEST_0: (&(1UL<<n))==0',
         explanation: 'Aprende de memoria este sexteto: son las únicas 6 operaciones que necesitas para escribir cualquier driver de periféricos en el mundo.'
+      },
+      {
+        title: 'Despiece de las 3 Capas del Puntero MMIO',
+        formulaOrRule: '*(volatile uint32_t *)0x40020014UL  ===>  [Capa 3: * Acceso] [Capa 2: (volatile uint32_t *) Molde] [Capa 1: 0x40020014UL Dirección]',
+        explanation: 'La Capa 1 es la dirección física de silicio, la Capa 2 es el casteo a puntero volátil que prohíbe la caché en registros, y la Capa 3 es el asterisco de desreferencia para leer o escribir.'
+      },
+      {
+        title: 'Regla Mnemotécnica de const con Punteros (Lee de Derecha a Izquierda)',
+        formulaOrRule: 'const T * p  (p es puntero a dato const)   vs   T * const p  (p es puntero const a dato variable)',
+        explanation: 'Si const está antes de *, el dato está congelado (en Flash ROM). Si const está después de *, el puntero está congelado (dirección física fija de silicio).'
+      },
+      {
+        title: 'Uso de (void) para Dummy Reads en Buses APB/AHB',
+        formulaOrRule: 'RCC->AHB1ENR |= (1UL << 0);   (void)RCC->AHB1ENR;',
+        explanation: 'Tras habilitar el reloj de un periférico, se requiere una lectura dummy forzada para consumir 2 ciclos de bus antes de acceder a los registros del periférico y evitar HardFault.'
+      },
+      {
+        title: 'sizeof() Cuesta Cero Ciclos de CPU y Cero RAM',
+        formulaOrRule: 'sizeof(tipo_o_variable)  ===>  Evaluado 100% por el Compilador',
+        explanation: 'Nunca temas usar sizeof() en bucles o comprobaciones de límites: el compilador reemplaza la expresión por una constante entera inmediata en tiempo de compilación.'
       },
       {
         title: 'Tabla de Conversión Rápida Hexadecimal <-> Binario (Nibble de 4 bits)',
@@ -213,6 +273,7 @@ export const MODULE_EXTENDED_DATA: Record<number, ModuleExtendedContent> = {
       }
     ],
     sketchDiagramSteps: [
+      'Dibuja el despiece del puntero MMIO en 3 capas horizontales: 1) Capa inferior: 0x40020014UL (coordenada física). 2) Capa intermedia: (volatile uint32_t *) (molde de puntero a 32 bits volátil). 3) Capa superior: * (llave que abre la casilla para leer o escribir).',
       'Dibuja dos cajas en la memoria RAM: la Caja A en la dirección 0x2000_0000 llamada "voltaje" con el valor 3300 dentro.',
       'Al lado dibuja la Caja B en la dirección 0x2000_0004 llamada "ptr" (un puntero) y escribe dentro de ella el número 0x2000_0000.',
       'Dibuja una flecha desde la Caja B ("ptr") apuntando a la Caja A ("voltaje"): escribe encima de la flecha "*ptr = 5000 cambia el contenido de la Caja A".',
@@ -426,6 +487,14 @@ void ejemplo_completo(void) {
         siliconReality:
           'En ensamblador ARM se traduce en 3 instrucciones: LDR (Load), ORR/BIC (Bitwise) y STR (Store).',
         exampleToCopy: 'REG = (REG & ~(3UL << 10)) | (1UL << 10);'
+      },
+      {
+        term: 'Desplazamiento Lógico vs Desplazamiento Aritmético (Shift >>)',
+        definition:
+          'El operador >> actúa según el signo: en tipos sin signo (uint32_t) ejecuta un Desplazamiento Lógico (LSR) rellenando con CEROS (0s) por la izquierda; en tipos con signo (int32_t) negativos ejecuta un Desplazamiento Aritmético (ASR) propagando el bit de signo y rellenando con UNOS (1s).',
+        siliconReality:
+          'Usar un tipo con signo para leer un registro con el bit 31 activo inunda de unos los bits superiores (0x80000000 >> 4 = 0xF8000000), corrompiendo la máscara.',
+        exampleToCopy: 'uint32_t mask = (0x80000000UL >> 4); // 0x08000000 (Limpio y correcto)'
       }
     ],
     goldenRules: [
@@ -448,6 +517,11 @@ void ejemplo_completo(void) {
         title: 'Regla 4: Escribir un valor V en un campo multi-bit de máscara M en la posición P',
         formulaOrRule: 'REG = (REG & ~(M << P)) | ((V & M) << P);',
         explanation: 'Primero limpia el hueco con AND NOT ~(M << P) y luego inserta el nuevo valor desplazado con OR.'
+      },
+      {
+        title: 'Regla de Oro del Shift >>: Tipos Sin Signo Obligatorios (uint32_t / UL)',
+        formulaOrRule: 'uint32_t campo = (reg_u32 >> pos) & mascara;   [NUNCA con int32_t]',
+        explanation: 'El desplazamiento lógico (LSR) rellena con ceros preservando el campo. El desplazamiento aritmético (ASR) sobre tipos con signo negativos rellena con unos destruyendo la máscara.'
       },
       {
         title: 'Regla MISRA-C 19.10: Blindaje de Macros con Dobles Paréntesis Obligatorios',
@@ -846,6 +920,14 @@ void inicializar_puerto(void) {
         siliconReality:
           'Sustituye la secuencia de 3 instrucciones (LDR-ORR-STR) por 1 sola instrucción indivisible (STR), eliminando las condiciones de carrera con interrupciones.',
         exampleToCopy: 'GPIOA->BSRR = (1UL << 5); // Enciende PA5 en 1 ciclo atómico'
+      },
+      {
+        term: 'Tipos Enumerados (enum) en Drivers de Hardware',
+        definition:
+          'Tipo de dato definido por el usuario que restringe una variable a un conjunto acotado de constantes con nombres legibles (por defecto 0, 1, 2...). Sustituye números mágicos abstractos por contratos verificables por el compilador.',
+        siliconReality:
+          'Se almacena internamente en un registro de la CPU o variable entera en RAM/Flash, pero permite que el compilador active advertencias con -Wswitch-enum si falta algún estado.',
+        exampleToCopy: 'typedef enum { GPIO_PULL_NONE = 0U, GPIO_PULL_UP = 1U, GPIO_PULL_DOWN = 2U } gpio_pull_t;'
       }
     ],
     goldenRules: [
@@ -858,6 +940,11 @@ void inicializar_puerto(void) {
         title: 'Regla del Registro BSRR en STM32 (32 bits)',
         formulaOrRule: 'Bits [15:0] = SET (Ponen a 3.3V)  |  Bits [31:16] = RESET (Ponen a 0V).',
         explanation: 'Para encender el pin N escribes (1UL << N). Para apagar el pin N escribes (1UL << (N + 16)). Siempre con "=" directo, nunca con "|=".'
+      },
+      {
+        title: 'Regla MISRA-C 10.1: Cero Números Mágicos con enum Tipados',
+        formulaOrRule: 'void gpio_set_pull(uint8_t pin, gpio_pull_t mode);   [NUNCA: void gpio_set_pull(uint8_t pin, uint8_t mode)]',
+        explanation: 'Tipar los parámetros de hardware con typedef enum impide pasar números arbitrarios inválidos y hace que el driver sea 100% autodocumentado.'
       },
       {
         title: 'Normativa Espacial ECSS-Q-ST-80C (Cláusula 6.2.2.8 HSIA) & ECSS-E-ST-40C (Annex U.2 #14)',
@@ -1933,6 +2020,22 @@ uint32_t adc_to_millivolts(uint16_t raw_12bit) {
         siliconReality:
           'Colocada al final del bucle principal o en la tarea Idle del RTOS, reduce el consumo del chip de miliamperios a microamperios sin perder capacidad de respuesta.',
         exampleToCopy: '__WFI(); // Duerme el núcleo en 1 ciclo hasta la próxima IRQ'
+      },
+      {
+        term: 'Punteros a Función y Callbacks (typedef void (*cb_t)(void))',
+        definition:
+          'Variable capaz de almacenar la dirección física de Flash donde inicia una función, permitiendo su ejecución dinámica e indirecta. En arquitectura de drivers, desacopla la interrupción (ISR) de la lógica de aplicación.',
+        siliconReality:
+          'Ocupa 4 bytes en RAM (dirección de 32 bits de Flash). La CPU invoca la función mediante la instrucción de salto con enlace indirecto BLX (ARM Thumb) o JALR (RISC-V).',
+        exampleToCopy: 'typedef void (*isr_callback_t)(uint16_t pin);  void gpio_set_cb(isr_callback_t cb);'
+      },
+      {
+        term: 'Funciones "static inline" en Archivos de Cabecera (.h)',
+        definition:
+          'Combinación que permite escribir funciones completas en archivos .h: "inline" sugiere incrustar el código máquina eliminando el salto CALL/RET, y "static" le da visibilidad privada (internal linkage) a cada .c, evitando el fallo de Linker por símbolos duplicados.',
+        siliconReality:
+          'Al compilar, el código de la función se incrusta directamente en el punto de llamada como una macro, pero con control de tipos estricto y sin saltos de CPU.',
+        exampleToCopy: 'static inline uint32_t pin_read_fast(volatile const uint32_t *r, uint8_t p) { return (*r >> p) & 1UL; }'
       }
     ],
     goldenRules: [
@@ -1940,6 +2043,16 @@ uint32_t adc_to_millivolts(uint16_t raw_12bit) {
         title: 'Ley de Arquitectura en Capas (Prohibido Saltarse Capas)',
         formulaOrRule: '[Aplicación / FSM]  --->  [Interfaz Driver / HAL]  --->  [Registros del Silicio]',
         explanation: 'El archivo de aplicación jamás debe incluir registros crudos del fabricante; así puedes probar la lógica de tu producto incluso en tu PC antes de tener la placa física.'
+      },
+      {
+        title: 'Regla de Callbacks: Desacoplamiento entre Driver e Interrupción',
+        formulaOrRule: 'if (g_callback != NULL) { g_callback(args); }',
+        explanation: 'El driver de hardware jamás debe conocer la lógica de negocio; valida siempre el puntero contra NULL antes de invocar la dirección.'
+      },
+      {
+        title: 'Regla ODR (One Definition Rule): Funciones en .h siempre static inline',
+        formulaOrRule: 'static inline tipo_retorno nombre_funcion(params) { ... }',
+        explanation: 'Nunca definas una función ordinaria en un archivo .h: generaría el error "multiple definition of symbol" en el Linker al incluirse en más de un archivo .c.'
       },
       {
         title: 'Regla de Oro del Watchdog Industrial',

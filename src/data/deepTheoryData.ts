@@ -77,7 +77,8 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
       paragraphs: [
         'En el interior de un microcontrolador no existen números decimales ni letras: solo existen transistores que están apagados (0V -> Bit 0) o encendidos (3.3V/5V -> Bit 1). La unidad mínima direccionable en memoria es el Byte (8 bits). Cada byte tiene una dirección única consecutiva (0x20000000, 0x20000001, 0x20000002...).',
         'Para representar números negativos en tipos con signo (int8_t, int16_t, int32_t), todos los procesadores modernos utilizan el sistema de Complemento a Dos: el bit más a la izquierda (MSB) actúa como bit de signo (0 = positivo, 1 = negativo). Para obtener el negativo de un número en binario, se invierten todos sus bits (~) y se suma 1.',
-        'Cuando una variable ocupa más de 1 byte (por ejemplo, un uint32_t de 4 bytes como 0x12345678), surge una pregunta física: ¿en qué orden se guardan esos 4 bytes en las 4 casillas de memoria consecutivas? Las arquitecturas ARM Cortex-M, RISC-V y AVR son Little-Endian (el byte menos significativo, 0x78, se guarda en la dirección más baja).'
+        'Cuando una variable ocupa más de 1 byte (por ejemplo, un uint32_t de 4 bytes como 0x12345678), surge una pregunta física: ¿en qué orden se guardan esos 4 bytes en las 4 casillas de memoria consecutivas? Las arquitecturas ARM Cortex-M, RISC-V y AVR son Little-Endian (el byte menos significativo, 0x78, se guarda en la dirección más baja).',
+        'Existe además una herramienta fundamental de introspección de memoria: el operador sizeof(). A diferencia de lo que muchos creen al empezar, sizeof() NO es una función ni se ejecuta en la CPU en tiempo de ejecución: es un operador del compilador evaluado al 100% durante la compilación. Escribir sizeof(uint32_t) o sizeof(mi_struct) cuesta exactamente 0 ciclos de CPU y 0 bytes de RAM, ya que el compilador reemplaza directamente la expresión por un número literal entero.'
       ],
       table: {
         headers: ['Tipo C (<stdint.h>)', 'Bits / Bytes', 'Rango Exacto de Valores', 'Uso Típico en Sistemas Embebidos'],
@@ -323,6 +324,77 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           seniorFix: 'Escribe siempre 1UL << 31 con el sufijo UL.'
         }
       ]
+    },
+    {
+      id: 'm0-c6',
+      chapterNumber: 'Capítulo 0.6',
+      title: 'Anatomía del Puntero MMIO, Calificador volatile, const Pointers y Silenciamiento (void)',
+      subtitle: 'El despiece en 3 capas de (*(volatile uint32_t *)0x...), la regla de const en punteros y el silenciamiento de advertencias y accesos de bus',
+      paragraphs: [
+        'En los programas de C para ordenador de sobremesa, un puntero apunta a variables en la memoria RAM asignadas por el sistema operativo. En sistemas embebidos "bare-metal", sin embargo, utilizamos los punteros para hablar directamente con los transistores de silicio de los periféricos mediante Memory-Mapped I/O (MMIO). Para dominar este puente fundamental, despiezamos la fórmula canónica (*(volatile uint32_t *)0x40020014UL) en tres capas rigurosas: 1) Capa 1 (Dirección Base Numérica): el número hexadecimal literal 0x40020014UL representa la coordenada física real del registro en el mapa de memoria del microcontrolador. 2) Capa 2 (El Molde de Tipo Puntero): la expresión (volatile uint32_t *) le ordena al compilador que trate ese número entero como una dirección que apunta a una casilla de 32 bits volátil. 3) Capa 3 (El Operador Exterior de Desreferencia): el asterisco exterior * entra físicamente en esa dirección para escribir datos en el registro (*p = val) o leer su estado eléctrico (val = *p).',
+        'El calificador "volatile" es vital en esta fórmula: en un programa convencional, si el compilador detecta que escribes dos veces seguidas en una dirección sin leerla entre medias (ej. encender y apagar un pin para generar un pulso de reloj), su optimizador (-O2 / -O3) asume que la primera escritura es inútil y la elimina del binario. El calificador "volatile" le advierte formalmente al compilador: "Esta casilla de memoria puede cambiar sola por hardware o su lectura/escritura tiene efectos físicos en el mundo real; está terminantemente prohibido almacenar su valor en la caché de registros internos de la CPU (R0..R12) y está prohibido eliminar o reordenar cualquier acceso a ella".',
+        'Por otro lado, la posición de la palabra "const" con respecto al asterisco del puntero define con precisión qué elemento está protegido contra modificaciones: 1) "const uint8_t *ptr" (o "uint8_t const *ptr") define un puntero hacia un dato constante. La dirección guardada en ptr puede cambiar y avanzar, pero el dato al que apunta no puede ser modificado (ideal para recorrer tablas de calibración o mensajes almacenados en la memoria Flash ROM). 2) "uint32_t * const ptr" define un puntero constante hacia un dato variable. La dirección numérica es fija y jamás puede alterarse, pero el dato apuntado sí puede ser modificado (es la definición exacta de un registro de hardware que siempre reside en una dirección física fija). 3) "const uint32_t * const ptr" bloquea tanto la dirección como el dato (ideal para registros de silicio de solo lectura, como el Chip ID o Unique Device ID grabado en fábrica).',
+        'Finalmente, la instrucción "(void)variable;" cumple dos funciones trascendentales en la ingeniería de firmware: 1) Silenciamiento de advertencias: bajo normas de alta integridad (MISRA-C / DO-178C) donde se compila con "-Wall -Wextra -Werror", cualquier parámetro o variable no utilizada detiene la compilación; escribir (void)var; notifica explícitamente al compilador que el descarte es deliberado sin generar código máquina. 2) Lecturas "dummy" de bus de periféricos: en arquitecturas como ARM Cortex-M (STM32, NRF, RP2040), tras habilitar el reloj de un periférico en registros como RCC->AHB1ENR, los buses de silicio (APB/AHB) requieren hasta 2 ciclos de retardo para propagar la señal de reloj antes de que el periférico acepte escrituras. Ejecutar una lectura dummy forzada como "(void)RCC->AHB1ENR;" garantiza que la transacción de bus finalice antes de intentar configurar el periférico, evitando excepciones HardFault mortales.'
+      ],
+      formulas: [
+        {
+          name: '1. Despiece Capa 1: Dirección Física',
+          expression: '0x40020014UL',
+          explanation: 'Número hexadecimal literal de 32 bits que ubica físicamente los transistores del registro en el bus del chip.'
+        },
+        {
+          name: '2. Despiece Capa 2: Casteo a Puntero Volátil',
+          expression: '(volatile uint32_t *)',
+          explanation: 'Transforma el número en la dirección de un entero de 32 bits volátil, prohibiendo la caché en registros de la CPU.'
+        },
+        {
+          name: '3. Despiece Capa 3: Desreferencia de Silicio',
+          expression: '*(volatile uint32_t *)0x40020014UL',
+          explanation: 'El asterisco exterior abre la casilla física para escribir un comando en el pin o leer su voltaje real.'
+        },
+        {
+          name: '4. Lectura Dummy de Bus (Estabilización de Reloj)',
+          expression: '(void)RCC->AHB1ENR;',
+          explanation: 'Fuerza una lectura en el bus APB/AHB para esperar 2 ciclos de reloj tras activar el periférico antes de usarlo.'
+        }
+      ],
+      table: {
+        headers: ['Construcción con const y void', 'Qué elemento es Constante', 'Ubicación Física en Silicio', 'Uso Profesional en Firmware'],
+        rows: [
+          ['const uint8_t *ptr', 'El dato apuntado (Solo Lectura)', 'Memoria Flash ROM (0x08000000)', 'Tablas de calibración, fuentes tipográficas, tramas fijas'],
+          ['uint32_t * const ptr', 'La dirección del puntero (Fija)', 'Memoria de Periféricos MMIO (0x40000000)', 'Puntero permanente a un registro de hardware (ej. GPIOA->ODR)'],
+          ['const uint32_t * const ptr', 'Tanto la dirección como el dato', 'Registros ROM / Device ID del fabricante', 'Lectura de número de serie único y capacidad de Flash'],
+          ['(void)variable;', 'No aplica (Instrucción de control)', 'Compilador / Bus de periféricos', 'Silenciar -Wunused-parameter y forzar sincronización de bus']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Despiece y Control de un Registro MMIO con Lectura Dummy de Bus',
+        problemStatement:
+          'Quieres activar el reloj del puerto GPIOA en un STM32 escribiendo en el registro RCC_AHB1ENR (dirección 0x40023830UL) y encender el bit 0. Diseña el código en C bare-metal aplicando el despiece en 3 capas, const punteros y la lectura dummy de bus para evitar un fallo HardFault.',
+        steps: [
+          '1. Definimos el puntero constante al registro de reloj: uint32_t * const p_rcc_ahb1 = (uint32_t *)0x40023830UL. Como la dirección del periférico nunca cambia, usamos * const.',
+          '2. Encendemos el bit 0 de RCC_AHB1ENR para alimentar de reloj a los transistores de GPIOA: *p_rcc_ahb1 |= (1UL << 0);',
+          '3. Tras habilitar el reloj, el bus AHB1 requiere 2 ciclos de retardo para estabilizarse. Hacemos una lectura dummy forzada: (void)*p_rcc_ahb1; para asegurar que el bus responde antes de acceder a GPIOA.',
+          '4. Accedemos ahora con seguridad al registro GPIOA_ODR (0x40020014UL) mediante la desreferencia completa: (*(volatile uint32_t *)0x40020014UL) |= (1UL << 5);'
+        ],
+        codeOrMath: `// 1. Puntero constante a dirección física de reloj:\nvolatile uint32_t * const p_rcc = (volatile uint32_t *)0x40023830UL;\n\n// 2. Activar reloj de GPIOA (Bit 0):\n*p_rcc |= (1UL << 0);\n\n// 3. Lectura Dummy de bus (Espera de 2 ciclos de bus APB/AHB):\n(void)*p_rcc;\n\n// 4. Escribir de forma segura en GPIOA_ODR sin HardFault:\n(*(volatile uint32_t *)0x40020014UL) |= (1UL << 5); // Enciende Pin PA5`,
+        conclusion:
+          'Sin la lectura dummy (void)*p_rcc, una CPU de alta frecuencia a 84 MHz o 168 MHz intentaría acceder a GPIOA antes de que su reloj esté encendido, provocando un fallo de bus fatal (BusFault / HardFault).'
+      },
+      pitfalls: [
+        {
+          mistake: 'Olvidar el calificador volatile en un puntero a registro: uint32_t *p = (uint32_t *)0x40020014;',
+          whyItFails:
+            'Con optimización -O2, el compilador leerá el valor una sola vez en un registro de la CPU (R0) y nunca volverá a consultar el estado físico del pin, dejando al programa ciego ante cambios del mundo exterior.',
+          seniorFix: 'Declara siempre los punteros a registros como volatile: volatile uint32_t *p;'
+        },
+        {
+          mistake: 'Confundir const uint32_t *p con uint32_t * const p al definir registros',
+          whyItFails:
+            'Si escribes const uint32_t *p_reg, le dices al compilador que el dato es de solo lectura; ¡cuando intentes escribir *p_reg = 1; el compilador se negará a compilar!',
+          seniorFix: 'Para registros de escritura usa uint32_t * const p (dirección fija, dato modificable).'
+        }
+      ]
     }
   ],
 
@@ -487,6 +559,71 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           whyItFails:
             'En expresiones como BIT(3) * 2 o if (x & BIT(n)), la multiplicación (*) y el AND (&) tienen distinta precedencia que el desplazamiento (<<), produciendo cálculos matemáticos completamente erróneos.',
           seniorFix: 'Usa siempre la sintaxis obligatoria de MISRA-C: #define BIT(n) ((1UL) << (n)) con paréntesis dobles.'
+        }
+      ]
+    },
+    {
+      id: 'm1-c4',
+      chapterNumber: 'Capítulo 1.4',
+      title: 'Desplazamiento Lógico vs Aritmético: La Trampa Oculta del Operador >> en Hardware',
+      subtitle: 'Por qué desplazar un int32_t negativo inunda el registro de unos y cómo la CPU ejecuta LSR vs ASR en ensamblador',
+      paragraphs: [
+        'En el lenguaje C estándar (ISO/IEC 9899), el operador de desplazamiento a la derecha (>>) presenta un comportamiento dual fascinante y peligroso: no realiza una única operación fija en la ALU del microcontrolador, sino que su traducción a código máquina depende estrictamente de si la variable tiene o no signo (unsigned vs signed).',
+        'Cuando operas sobre tipos sin signo (<stdint.h>: uint8_t, uint16_t, uint32_t) o literales con sufijo U / UL, el compilador emite una instrucción de Desplazamiento Lógico a la Derecha (en arquitectura ARM Thumb-2: "LSR", Logical Shift Right). En un desplazamiento lógico de N posiciones, todos los bits se mueven N casillas hacia la derecha, los bits salientes por la derecha se descartan y las nuevas posiciones que entran por el extremo izquierdo (los bits más significativos, MSB) se rellenan obligatoriamente con CEROS (0s). Esto garantiza que la máscara o el campo numérico quede limpio y aislado.',
+        'Por el contrario, cuando aplicas (>>) sobre un tipo entero con signo (int8_t, int16_t, int32_t) y el valor es negativo (es decir, el bit más a la izquierda, el bit de signo, vale 1), el compilador emite una instrucción de Desplazamiento Aritmético a la Derecha (en ARM: "ASR", Arithmetic Shift Right). Para preservar el signo matemático del número en complemento a dos, el circuito de la ALU copia y propaga el bit de signo, ¡rellenando todas las nuevas posiciones de la izquierda con UNOS (1s)!',
+        'Si un desarrollador de firmware olvida colocar el sufijo "UL" en una constante o utiliza un int32_t ordinario para leer un registro de 32 bits cuyo bit 31 esté encendido (como el bit de habilitación de un periférico o una bandera de interrupción), aplicar (reg >> 4) propagará un reguero de unos que convertirá 0x80000000 en 0xF8000000. Al combinarlo posteriormente con un OR o evaluarlo en una condición lógica, el programa tomará decisiones erróneas. Por este motivo, la norma aeroespacial y de automoción MISRA-C:2012 Regla 10.1 prohíbe de forma taxativa el uso de los operadores de desplazamiento (<< y >>) sobre cualquier tipo de dato con signo.'
+      ],
+      formulas: [
+        {
+          name: '1. Desplazamiento Lógico (uint32_t)',
+          expression: '0x80000000UL >> 4  -->  0x08000000UL',
+          explanation: 'La CPU ejecuta LSR (Logical Shift Right). Los 4 bits superiores que entran por la izquierda son siempre 0000.'
+        },
+        {
+          name: '2. Desplazamiento Aritmético (int32_t negativo)',
+          expression: '((int32_t)0x80000000) >> 4  -->  0xF8000000',
+          explanation: 'La CPU ejecuta ASR (Arithmetic Shift Right). Como el bit 31 es 1, los 4 bits superiores que entran se rellenan con 1111 (0xF).'
+        },
+        {
+          name: '3. Regla MISRA-C:2012 10.1 (Tipos Sin Signo Obligatorios)',
+          expression: 'uint32_t campo = (reg_u32 >> pos) & mascara;',
+          explanation: 'Tanto el registro como el desplazamiento y la máscara deben ser estrictamente de tipos sin signo (unsigned).'
+        }
+      ],
+      table: {
+        headers: ['Tipo de Operando', 'Instrucción ARM Cortex-M / RISC-V', 'Tratamiento de Bits Entrantes por la Izquierda', 'Resultado Práctico con 0x80000000 >> 4'],
+        rows: [
+          ['uint32_t (Sin Signo / UL)', 'LSR (Logical Shift Right)', 'Rellena con CEROS (0s) siempre', '0x08000000 (Limpio, campo preservado)'],
+          ['int32_t positivo (> 0)', 'ASR (Arithmetic Shift Right)', 'Rellena con CEROS (0s) al ser signo 0', '0x08000000 (Comportamiento coincidente)'],
+          ['int32_t negativo (< 0)', 'ASR (Arithmetic Shift Right)', 'Rellena con UNOS (1s) propagando el signo', '0xF8000000 (¡Inundación catastrófica de unos!)']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: El Desastre Silencioso de Extraer un Campo de Hardware con un Tipo con Signo',
+        problemStatement:
+          'Un sensor de presión industrial almacena su código de estado en los 4 bits superiores [31:28] de un registro de 32 bits. Si el registro vale 0x80000000 (bit 31 activo), compara el resultado de extraer el código con uint32_t frente a int32_t.',
+        steps: [
+          '1. Extracción con uint32_t (Correcto): uint32_t reg_u = 0x80000000UL; uint32_t status_u = (reg_u >> 28);',
+          '2. El microcontrolador ejecuta LSR. Los 28 bits que caen se descartan y por la izquierda entran 28 ceros: 0x80000000 >> 28 = 0x00000008 (código 8, correcto).',
+          '3. Extracción con int32_t (Peligro): int32_t reg_s = (int32_t)0x80000000; int32_t status_s = (reg_s >> 28);',
+          '4. El procesador ejecuta ASR. Como el bit 31 era 1 (número negativo), se propagan 28 unos: 0x80000000 >> 28 = 0xFFFFFFF8 (-8 en decimal). Si luego haces if (status == 8), la condición fallará estrepitosamente.'
+        ],
+        codeOrMath: `// ✅ EXTRACCIÓN CORRECTA (LSR):\nuint32_t reg_u    = 0x80000000UL;\nuint32_t status_u = (reg_u >> 28); // 0x00000008 (Decimal: 8)\n\n// ❌ BUG SILENCIOSO (ASR):\nint32_t  reg_s    = (int32_t)0x80000000;\nint32_t  status_s = (reg_s >> 28); // 0xFFFFFFF8 (Decimal: -8)`,
+        conclusion:
+          'En el cuaderno físico anota esta regla en mayúsculas: JAMÁS uses tipos con signo (int, int32_t) para manipular registros, extraer campos o aplicar desplazamientos (>>).'
+      },
+      pitfalls: [
+        {
+          mistake: 'Hacer desplazamiento a la derecha sobre una variable declarada simplemente como "int"',
+          whyItFails:
+            'En C, "int" tiene signo. Si el número toma un valor negativo o tiene el bit MSB a 1, la CPU aplicará ASR y rellenará la izquierda con unos, corrompiendo cualquier cálculo de máscara.',
+          seniorFix: 'Usa siempre tipos de <stdint.h> con prefijo "u" (uint32_t, uint16_t, uint8_t).'
+        },
+        {
+          mistake: 'Desplazar más bits que el tamaño del tipo (ej. uint32_t x; x >> 32;)',
+          whyItFails:
+            'En el estándar C, desplazar un número un número de posiciones mayor o igual a su tamaño en bits es Comportamiento Indefinido (Undefined Behavior). Muchas CPUs enmascaran el desplazamiento con 0x1F, por lo que x >> 32 se convierte en x >> 0 (no hace nada).',
+          seniorFix: 'Verifica que el desplazamiento n esté estrictamente en el rango 0 <= n < 32.'
         }
       ]
     }
@@ -662,6 +799,71 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           mistake: 'Conectar un botón con rebotes directamente a una interrupción externa (EXTI) sin filtro ni validación temporal',
           whyItFails: 'El rebote mecánico disparará la ISR decenas de veces en ráfaga saturando la CPU.',
           seniorFix: 'Para botones pulsados por humanos (que duran > 50 ms), es mucho más limpio y seguro muestrearlos desde un Timer periódico de 5-10 ms.'
+        }
+      ]
+    },
+    {
+      id: 'm3-c3',
+      chapterNumber: 'Capítulo 3.3',
+      title: 'Tipos Enumerados (enum) en Firmware: Eliminación de Números Mágicos, Máquinas de Estado y Códigos de Error',
+      subtitle: 'Cómo tipar configuraciones de hardware, códigos de retorno y estados del sistema bajo la norma MISRA-C',
+      paragraphs: [
+        'En la programación en C para sistemas embebidos, la legibilidad y la seguridad en tiempo de compilación son requisitos no negociables. Un tipo enumerado (enum) permite definir un conjunto acotado de constantes enteras con nombres semánticos inequívocos. En lugar de que una función reciba números enteros abstractos (conocidos en ingeniería de software como "números mágicos"), un enum define formalmente el universo de opciones válidas que el hardware puede aceptar.',
+        'La norma de seguridad aeroespacial y automotriz MISRA-C:2012 (Regla 10.1 y Directriz 4.14) prohíbe explícitamente el uso de literales numéricos sueltos para configurar hardware. Por ejemplo, en un código no profesional es habitual ver llamadas como gpio_config_pin(PORT_A, 5, 1, 2, 0);. Ningún ingeniero en una revisión de código puede saber qué significa el 1, el 2 o el 0 sin consultar los comentarios internos del driver. Al utilizar "typedef enum", la llamada se transforma en gpio_config_pin(PORT_A, 5, GPIO_MODE_OUTPUT, GPIO_PULL_UP, GPIO_SPEED_FAST);. Si el desarrollador intenta pasar un valor inexistente, el compilador o el analizador estático emite una advertencia o error inmediato.',
+        'Además de las configuraciones de periféricos, los tipos enumerados son la columna vertebral de dos patrones arquitectónicos fundamentales: 1) Códigos de Estado y Retorno tipados (status_t): en sistemas críticos (ECSS / DO-178C), ninguna función de bajo nivel debe devolver un booleano simplista ni ignorar el estado de finalización. Un enum como sys_status_t define resultados explícitos (SYS_OK, SYS_ERR_TIMEOUT, SYS_ERR_BUSY, SYS_ERR_CRC, SYS_ERR_OVERFLOW), permitiendo a la capa de control tomar decisiones deterministas. 2) Máquinas de Estados Finitos (FSM): modelar los modos de funcionamiento de un dispositivo (ej. FSM_IDLE, FSM_ACQUIRING, FSM_TRANSMITTING, FSM_FAULT) mediante un enum permite que el compilador con la bandera "-Wswitch-enum" verifique automáticamente que cada "case" del estado esté contemplado sin omisiones.',
+        'A nivel de memoria y silicio, un enum en C estándar se representa internamente como un entero con signo (signed int). No obstante, en microcontroladores con recursos limitados o al serializar datos en estructuras de red compactas, los compiladores GCC/Clang admiten la directiva de empaquetado __attribute__((packed)) o la especificación del tipo base en C moderno, reduciendo el tamaño del enum a un solo byte (uint8_t) sin perder su tipado estricto.'
+      ],
+      formulas: [
+        {
+          name: '1. Definición Canónica con typedef enum',
+          expression: 'typedef enum { GPIO_PULL_NONE = 0U, GPIO_PULL_UP = 1U, GPIO_PULL_DOWN = 2U } gpio_pull_t;',
+          explanation: 'Asigna valores explícitos a cada símbolo garantizando coherencia en silicio y compatibilidad con registros.'
+        },
+        {
+          name: '2. Verificación Estricta con switch-enum',
+          expression: 'switch (current_state) { case STATE_A: ... break; ... }',
+          explanation: 'La opción de compilación -Wswitch-enum avisa si el programador olvida manejar alguno de los estados definidos.'
+        },
+        {
+          name: '3. Código de Retorno Canónico',
+          expression: 'typedef enum { STATUS_OK = 0, STATUS_TIMEOUT = -1, STATUS_BUSY = -2 } status_t;',
+          explanation: 'Convención estándar: 0 para éxito y valores negativos para errores específicos del bus o periférico.'
+        }
+      ],
+      table: {
+        headers: ['Patrón con enum', 'Ejemplo de Implementación', 'Ventaja en Silicio / Compilador', 'Violación Evitada (MISRA-C)'],
+        rows: [
+          ['Configuración de Hardware', 'typedef enum { GPIO_INPUT, GPIO_OUTPUT, GPIO_ALT, GPIO_ANALOG } gpio_mode_t;', 'El valor numérico coincide con los bits del registro MODER', 'Regla 10.1: Cero números mágicos en llamadas'],
+          ['Máquina de Estados (FSM)', 'typedef enum { FSM_INIT, FSM_READY, FSM_TX, FSM_ERROR } fsm_state_t;', 'La CPU almacena el estado en 1 registro en RAM', 'Directriz 4.14: Validación completa de estados'],
+          ['Códigos de Retorno', 'typedef enum { DRV_OK, DRV_ERR_TIMEOUT, DRV_ERR_PARAM } drv_status_t;', 'Gestión determinista de fallos de periféricos', 'Regla 17.7: Obliga a verificar el valor de retorno']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Sustitución de Números Mágicos por un enum Tipado en un Driver de GPIO',
+        problemStatement:
+          'Un código hereda una función void gpio_set_resistor(uint8_t pin, uint8_t pull); donde pull=0 es flotante, pull=1 es pull-up y pull=2 es pull-down. Un programador escribió por error gpio_set_resistor(5, 7);. Refactoriza la función utilizando enum y muestra cómo el compilador blinda la llamada.',
+        steps: [
+          '1. Creamos un tipo enumerado formal gpio_pull_t con valores 0, 1 y 2 en el archivo .h del driver.',
+          '2. Cambiamos la firma de la función para que acepte gpio_pull_t en lugar del tipo genérico uint8_t.',
+          '3. En el cuerpo de la función, escribimos los bits directamente en el registro PUPDR asegurando que solo se apliquen valores válidos.',
+          '4. Al compilar gpio_set_resistor(5, 7);, el analizador estático o compilador detectará un fallo de tipo ("implicit conversion from integer to enum").'
+        ],
+        codeOrMath: `// En hal_gpio.h:\ntypedef enum {\n    GPIO_PULL_NONE = 0U,\n    GPIO_PULL_UP   = 1U,\n    GPIO_PULL_DOWN = 2U\n} gpio_pull_t;\n\nvoid gpio_set_resistor(uint8_t pin, gpio_pull_t pull);\n\n// En main.c:\ngpio_set_resistor(5, GPIO_PULL_UP); // ✅ 100% Autodocumentado y seguro!`,
+        conclusion:
+          'El uso de enum convierte un parámetro propenso a errores humanos en un contrato estricto verificado por el compilador.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Asumir que el compilador impide que una variable enum tome valores fuera del rango en tiempo de ejecución',
+          whyItFails:
+            'En C estándar, una variable enum es tratada internamente como un entero. Si un puntero corrupto o un desbordamiento de memoria escribe un 99 en la variable, el microcontrolador no se enterará en tiempo de ejecución.',
+          seniorFix: 'En la máquina de estados o función, incluye siempre una cláusula "default:" que capture valores ilegales y lance una excepción de seguridad.'
+        },
+        {
+          mistake: 'Comparar un enum con números enteros mágicos sueltos: if (modo == 2)',
+          whyItFails:
+            'Destruye la legibilidad y hace que si en el futuro se reordenan las constantes del enum, la lógica se rompa sin que nadie lo note.',
+          seniorFix: 'Compara siempre contra el símbolo: if (modo == GPIO_PULL_DOWN).'
         }
       ]
     }
@@ -1094,6 +1296,71 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           whyItFails:
             'Un Mutex está diseñado para que una tarea espere (se bloquee) si está ocupado, pero una ISR jamás puede bloquearse ni dormir ni tiene un Task Control Block (TCB).',
           seniorFix: 'Dentro de una ISR solo se pueden usar funciones terminadas en FromISR (como xQueueSendFromISR o xSemaphoreGiveFromISR).'
+        }
+      ]
+    },
+    {
+      id: 'm8-c3',
+      chapterNumber: 'Capítulo 8.3',
+      title: 'Punteros a Función, Callbacks y la Técnica static inline en Cabeceras .h',
+      subtitle: 'Desacoplamiento asíncrono entre interrupciones y aplicación, y el diseño de funciones ultrarrápidas sin colisiones en el Linker',
+      paragraphs: [
+        'En las arquitecturas de microcontroladores (Harvard o von Neumann modificada), las instrucciones de máquina compiladas residen físicamente en direcciones consecutivas de la memoria Flash ROM. Cada función en C posee una dirección de inicio de 32 bits donde comienza su secuencia de ejecución. Un puntero a función es una variable ordinaria de 4 bytes capaz de almacenar dicha dirección para invocarla dinámicamente mediante llamada indirecta (instrucción "BLX" en ARM Thumb o "JALR" en RISC-V).',
+        'La sintaxis de los punteros a función suele resultar críptica para quien empieza; la regla de oro en ingeniería de firmware es definir siempre un alias formal con "typedef": typedef void (*btn_callback_t)(uint16_t pin);. Esta definición permite crear el patrón Callback (o llamada de retorno): un driver de bajo nivel (ej. hal_gpio.c) expone una función de registro como void gpio_register_callback(uint8_t pin, btn_callback_t cb);. La capa de aplicación pasa un puntero a su propia función de negocio. Cuando la interrupción externa (EXTI) salta por un flanco eléctrico, la ISR del driver simplemente verifica if (cb != NULL) cb(pin);. De este modo, el driver de hardware no tiene ni una sola línea de código acoplada a la aplicación, convirtiéndose en una librería reusable en cualquier proyecto.',
+        'Por otra parte, surge con frecuencia la necesidad de definir pequeñas funciones auxiliares (como conversión de unidades, manipulación rápida de registros o lectura atómica de pines) dentro de un archivo de cabecera (.h) para que estén disponibles en todo el proyecto. Sin embargo, en C estándar colocar una función ordinaria en un .h viola la Regla de Definición Única (One Definition Rule - ODR): si tres archivos .c incluyen ese .h, el compilador generará el código binario de la función en tres archivos objeto (.o), y el Linker abortará con el error mortal: "multiple definition of symbol".',
+        'La solución canónica y universal es combinar los calificadores "static inline": 1) "inline" es una sugerencia formal al optimizador del compilador para que sustituya la llamada convencional (CALL/RET) por las instrucciones máquina de la función incrustadas directamente en el lugar de invocación, eliminando el coste de crear el marco de pila (Stack Frame) y alcanzando la velocidad de una macro pero con tipado seguro. 2) "static" otorga a la función enlace interno (internal linkage): le indica al compilador que la función es estrictamente privada a la unidad de traducción (.c) que la está procesando, garantizando que el símbolo no se exporte a la tabla global de símbolos y eliminando al 100% las colisiones en el Linker.'
+      ],
+      formulas: [
+        {
+          name: '1. Firma Canónica de Callback con typedef',
+          expression: 'typedef void (*rx_callback_t)(const uint8_t *data, uint16_t len);',
+          explanation: 'Define un tipo de puntero a función que recibe un buffer constante y su longitud, devolviendo void.'
+        },
+        {
+          name: '2. Función en Cabecera con static inline',
+          expression: 'static inline uint32_t pin_read_fast(volatile const uint32_t *idr, uint8_t pin) { return (*idr >> pin) & 1UL; }',
+          explanation: '0 ciclos de salto, tipado seguro y 0 colisiones de símbolos múltiples en el Linker.'
+        },
+        {
+          name: '3. Invocación Segura de Callback en ISR',
+          expression: 'if (g_rx_cb != NULL) { g_rx_cb(buffer, len); }',
+          explanation: 'Comprobación obligatoria contra puntero nulo antes de desreferenciar la dirección de la función.'
+        }
+      ],
+      table: {
+        headers: ['Patrón en Cabecera (.h)', '¿Se genera código binario?', 'Visibilidad para el Linker', 'Resultado al incluir en múltiples .c'],
+        rows: [
+          ['void fn(void) { ... }', 'Sí, en cada archivo .o que lo incluya', 'Símbolo Global (Exportado)', '❌ ERROR FATAL: multiple definition of `fn`'],
+          ['#define MACRO_FN() ...', 'No (sustitución textual directa)', 'No aplica (Preprocesador)', '⚠️ Riesgo de efectos colaterales y sin verificación de tipos'],
+          ['static inline void fn(void) { ... }', 'Incrustado en la llamada o local en .o', 'Enlace Interno (Privado al .o)', '🏆 EXCELENTE: Máximo rendimiento, tipado C y 0 errores de linker']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Desacoplar un Gestor de Botones mediante Callbacks y Función static inline',
+        problemStatement:
+          'Diseña un módulo de cabecera botón.h que incluya una función ultrarrápida de lectura de pin con static inline y una interfaz de registro de callback para desacoplar el evento de pulsación de la lógica de alarma.',
+        steps: [
+          '1. En boton.h definimos el tipo puntero a función: typedef void (*boton_handler_t)(void);',
+          '2. Añadimos una función estática en línea static inline bool pin_esta_bajo(volatile const uint32_t *idr, uint8_t pin) para lectura rápida.',
+          '3. En boton.c almacenamos una variable static boton_handler_t s_on_click = NULL; y la función de registro.',
+          '4. En la interrupción EXTI, cuando el filtro confirma la pulsación limpia, invocamos if (s_on_click != NULL) s_on_click();.'
+        ],
+        codeOrMath: `// --- En boton.h ---\ntypedef void (*boton_cb_t)(void);\nvoid boton_init(uint8_t pin, boton_cb_t callback);\n\nstatic inline bool boton_read_raw(volatile const uint32_t *idr, uint8_t pin) {\n    return ((*idr & (1UL << pin)) == 0UL); // Activo en bajo (Pull-Up)\n}\n\n// --- En main.c ---\nvoid encender_sirena(void) { /* Lógica de negocio de la alarma */ }\n\nvoid app_init(void) {\n    boton_init(5, encender_sirena); // Inyección del callback\n}`,
+        conclusion:
+          'El driver de botón jamás conoció la función "encender_sirena". Mañana puedes reutilizar exactamente el mismo driver boton.c/h para un dron, un ascensor o un satélite.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Invocar un puntero a función callback sin verificar si es NULL: g_callback();',
+          whyItFails:
+            'Si la aplicación no registró ningún callback antes de la interrupción, la CPU saltará a la dirección 0x00000000, provocando un fallo HardFault instantáneo.',
+          seniorFix: 'Verifica siempre antes de llamar: if (g_callback != NULL) { g_callback(); }.'
+        },
+        {
+          mistake: 'Definir una función con cuerpo ordinario en un archivo .h sin static inline',
+          whyItFails:
+            'Cada archivo .c que incluya el .h generará un símbolo idéntico, deteniendo el Linker por símbolos duplicados.',
+          seniorFix: 'Toda función con cuerpo implementada en un archivo de cabecera debe declararse como static inline.'
         }
       ]
     }
