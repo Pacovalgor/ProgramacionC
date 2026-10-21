@@ -40,13 +40,62 @@ import {
   ExtendedLabViewType,
   evaluateEmbeddedCCode
 } from './components/InteractiveLabs';
+import { CCodeBlock, CInlineCode, CLiveCodeEditor } from './components/CSyntaxCodeBlock';
 
 /** Clave utilizada en `localStorage` para persistir los IDs de los módulos completados por el estudiante. */
 const COMPLETED_MODULES_STORAGE_KEY = 'programacion_c_completed_modules';
 
+/**
+ * Icono SVG en Pixel-Art puro (rejilla 16x16 con `crispEdges`) que representa
+ * un microprocesador cerámico DIP de los años 80 con pines dorados y dado de silicio brillante.
+ */
+function PixelChip8BitIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      shapeRendering="crispEdges"
+      className="w-9 h-9 shrink-0"
+      aria-hidden="true"
+    >
+      {/* Pines metálicos izquierda y derecha (Dorado/Ámbar P3) */}
+      <rect x="1" y="3" width="2" height="1" fill="#ffb000" />
+      <rect x="1" y="6" width="2" height="1" fill="#ffb000" />
+      <rect x="1" y="9" width="2" height="1" fill="#ffb000" />
+      <rect x="1" y="12" width="2" height="1" fill="#ffb000" />
+      <rect x="13" y="3" width="2" height="1" fill="#ffb000" />
+      <rect x="13" y="6" width="2" height="1" fill="#ffb000" />
+      <rect x="13" y="9" width="2" height="1" fill="#ffb000" />
+      <rect x="13" y="12" width="2" height="1" fill="#ffb000" />
+      {/* Pines metálicos arriba y abajo */}
+      <rect x="4" y="1" width="1" height="2" fill="#ffb000" />
+      <rect x="7" y="1" width="2" height="2" fill="#ffb000" />
+      <rect x="11" y="1" width="1" height="2" fill="#ffb000" />
+      <rect x="4" y="13" width="1" height="2" fill="#ffb000" />
+      <rect x="7" y="13" width="2" height="2" fill="#ffb000" />
+      <rect x="11" y="13" width="1" height="2" fill="#ffb000" />
+      {/* Encapsulado cerámico negro/cian de 8-bit */}
+      <rect x="3" y="2" width="10" height="12" fill="#07131d" />
+      <rect x="3" y="2" width="10" height="1" fill="#00f0ff" />
+      <rect x="3" y="13" width="10" height="1" fill="#00f0ff" />
+      <rect x="3" y="2" width="1" height="12" fill="#00f0ff" />
+      <rect x="12" y="2" width="1" height="12" fill="#00f0ff" />
+      {/* Muesca de orientación Pin 1 (Arriba) */}
+      <rect x="7" y="2" width="2" height="2" fill="#ffb000" />
+      {/* Dado central de Silicio (Fósforo Verde P31) */}
+      <rect x="5" y="5" width="6" height="6" fill="#00ff66" />
+      <rect x="6" y="6" width="4" height="4" fill="#051b11" />
+      <rect x="7" y="7" width="2" height="2" fill="#00f0ff" />
+    </svg>
+  );
+}
+
 export function App() {
   // Microcontrolador activo seleccionado en la cabecera (por defecto STM32F401RE)
   const [selectedMcuId, setSelectedMcuId] = useState<MCUId>('stm32f401');
+  // Paleta de color ochentera activa (Turbo C MS-DOS, Pixel 8-Bit Arcade, Fósforo Ámbar P3 o Fósforo Verde P31)
+  const [retroTheme, setRetroTheme] = useState<'theme-turboc' | 'theme-arcade' | 'theme-amber' | 'theme-green'>('theme-turboc');
+  // Interruptor de líneas de escaneo de monitor CRT ochentero (desactivado por defecto para máxima nitidez de texto)
+  const [crtScanlines, setCrtScanlines] = useState<boolean>(false);
   // Módulo activo del plan de estudios (0 = Base C .. 11 = Normativa ECSS/NASA)
   const [activeModuleId, setActiveModuleId] = useState<number>(0);
   // Nivel de abstracción del código C mostrado (Puntero crudo, Struct CMSIS/SDK o Driver Profesional)
@@ -159,43 +208,97 @@ export function App() {
   const progressPercent = Math.round((completedModules.length / COURSE_MODULES.length) * 100);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div
+      className={`min-h-screen ${retroTheme} retro-cad-grid text-slate-100 flex flex-col ${
+        crtScanlines ? 'crt-scanlines' : ''
+      }`}
+    >
+      {/* ===================================================================
+          CINTA TELEMÉTRICA SUPERIOR: SELECTOR DE PALETA DE COLOR AÑOS 80
+         =================================================================== */}
+      <div className="bg-black border-b-2 border-[var(--border-strong)] px-4 py-1.5 text-[11px] font-mono text-emerald-400">
+        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-2 py-0.5 bg-[var(--accent-primary)] text-black font-pixel font-bold text-[10px]">
+              PALETA 80s:
+            </span>
+            {[
+              { id: 'theme-turboc', label: '1. TURBO C (AZUL DOS)' },
+              { id: 'theme-arcade', label: '2. PIXEL 8-BIT (ARCADE)' },
+              { id: 'theme-amber', label: '3. CRT ÁMBAR (VT220)' },
+              { id: 'theme-green', label: '4. CRT VERDE (IBM 5151)' }
+            ].map((t) => {
+              const isAct = retroTheme === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setRetroTheme(t.id as typeof retroTheme)}
+                  className={`px-2.5 py-0.5 text-[10px] font-pixel transition-all ${
+                    isAct
+                      ? 'bg-cyan-400 text-black font-bold border-white'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden lg:inline text-amber-300">
+              BELL LABS K&amp;R C • ROM_MOD: 0x0{currentModule.id.toString(16).toUpperCase()}
+            </span>
+            <button
+              onClick={() => setCrtScanlines(!crtScanlines)}
+              className={`px-2 py-0.5 text-[10px] font-pixel border ${
+                crtScanlines
+                  ? 'bg-emerald-400 text-black border-white font-bold'
+                  : 'bg-slate-900 text-slate-300 border-slate-700'
+              }`}
+              title="Activar o desactivar las líneas de escaneo de monitor CRT"
+            >
+              SCANLINES: {crtScanlines ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* ===================================================================
           BARRA SUPERIOR: IDENTIDAD DEL PROYECTO + SELECTOR GLOBAL DE MCU
          =================================================================== */}
-      <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-4 py-3">
+      <header className="sticky top-0 z-30 bg-[var(--bg-window)] border-b-4 border-[var(--border-strong)] px-4 py-3 shadow-lg">
         <div className="max-w-[1600px] mx-auto flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-950">
-                <Cpu className="w-6 h-6 text-slate-950" />
+              <div className="w-11 h-11 bg-black border-2 border-[var(--border-strong)] flex items-center justify-center shadow-pixel">
+                <PixelChip8BitIcon />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-white">
-                    Programación C <span className="text-cyan-400">Sistemas Embebidos & Hardware</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-sm sm:text-base font-pixel font-bold tracking-tight text-white uppercase">
+                    PROGRAMACIÓN_C.EXE <span className="text-[var(--accent-primary)]">// EMBEBIDOS &amp; SILICIO</span>
                   </h1>
-                  <span className="hidden sm:inline-block text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                    Curso + Laboratorio + Cuaderno de Estudio
+                  <span className="hidden sm:inline-block text-[10px] font-pixel uppercase px-2 py-0.5 bg-[var(--accent-primary)] text-black font-bold border border-black">
+                    EDICIÓN RETRO K&amp;R 80s
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">
-                  De fundamentos de C a Ingeniería Aeroespacial (ECSS / NASA) enlazando Código, Datasheet, Registros y Transistores
+                <p className="text-xs text-[var(--text-body)] font-mono">
+                  &gt; De fundamentos de C a Ingeniería Aeroespacial (ECSS / NASA) enlazando Código, Datasheet, Registros y Transistores
                 </p>
               </div>
             </div>
 
             <button
               onClick={() => setShowSpecsMatrix(!showSpecsMatrix)}
-              className="xl:hidden px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-cyan-300"
+              className="xl:hidden px-3 py-1.5 bg-black border-2 border-[var(--border-strong)] text-xs font-pixel text-[var(--accent-primary)]"
             >
-              {showSpecsMatrix ? 'Cerrar Tabla MCU' : 'Comparar 5 Chips'}
+              {showSpecsMatrix ? '[X] CERRAR' : '[5 CHIPS]'}
             </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-mono uppercase text-slate-400 mr-1 hidden sm:inline">
-              Selector de MCU:
+            <span className="text-[11px] font-pixel uppercase text-[var(--accent-primary)] mr-1 hidden sm:inline">
+              CHIP_SELECT:
             </span>
             {MCU_LIST.map((mcu) => {
               const active = mcu.id === selectedMcuId;
@@ -203,17 +306,19 @@ export function App() {
                 <button
                   key={mcu.id}
                   onClick={() => setSelectedMcuId(mcu.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all flex items-center gap-1.5 border ${
+                  className={`px-3 py-1.5 text-xs font-pixel transition-all flex items-center gap-1.5 border-2 ${
                     active
-                      ? 'bg-cyan-500 text-slate-950 font-extrabold border-cyan-300 shadow-lg shadow-cyan-950/60'
-                      : 'bg-slate-900/90 text-slate-300 border-slate-800 hover:bg-slate-800 hover:border-slate-700'
+                      ? 'bg-[var(--accent-primary)] text-black font-bold border-white'
+                      : 'bg-[var(--bg-card-inner)] text-white border-[var(--border-card)] hover:bg-black'
                   }`}
                 >
                   <Cpu className="w-3.5 h-3.5" />
                   <span>{mcu.name}</span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded ${
-                      active ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-950 text-slate-400'
+                    className={`text-[10px] px-1.5 py-0.2 border ${
+                      active
+                        ? 'bg-black text-[var(--accent-primary)] border-black'
+                        : 'bg-black text-amber-300 border-slate-800'
                     }`}
                   >
                     {mcu.bitWidth}b
@@ -224,10 +329,10 @@ export function App() {
 
             <button
               onClick={() => setShowSpecsMatrix(!showSpecsMatrix)}
-              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-mono text-amber-300 transition-all ml-1"
+              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-black hover:bg-slate-900 border-2 border-[var(--accent-primary)] text-xs font-pixel text-[var(--accent-primary)] transition-all ml-1"
             >
               <GitCompare className="w-3.5 h-3.5" />
-              {showSpecsMatrix ? 'Ocultar Comparativa' : 'Comparar los 5 Chips'}
+              {showSpecsMatrix ? '[OCULTAR MATRIZ]' : '[COMPARAR 5 CHIPS]'}
             </button>
           </div>
         </div>
@@ -315,115 +420,144 @@ export function App() {
           MAIN BODY: LEFT CURRICULUM SIDEBAR + RIGHT INTERACTIVE WORKSPACE
          =================================================================== */}
       <div className="max-w-[1600px] w-full mx-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-4 sm:p-6">
-        {/* LEFT COLUMN: 8-MODULE COURSE CURRICULUM & MCU SUMMARY CARD */}
+        {/* LEFT COLUMN: 12-MODULE COURSE CURRICULUM & MCU SUMMARY CARD */}
         <aside className="lg:col-span-3 space-y-5">
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
-                <Award className="w-4 h-4" /> Ruta de 0 a Experto
-              </span>
-              <span className="text-xs font-mono font-bold text-emerald-400">
-                {completedModules.length}/{COURSE_MODULES.length} Módulos ({progressPercent}%)
-              </span>
+          <div className="retro-window overflow-hidden">
+            <div className="retro-titlebar px-3 py-1.5 flex items-center justify-between text-[11px] font-pixel text-cyan-300">
+              <span>╔═ [ TEMARIO_ROM.DIR ]</span>
+              <span className="text-emerald-400">[00..11]</span>
             </div>
-            <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-              <div
-                className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-500"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-pixel uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                  <Award className="w-4 h-4" /> Ruta 0 a Experto
+                </span>
+                <span className="text-xs font-pixel font-bold text-emerald-400">
+                  {completedModules.length}/{COURSE_MODULES.length} ({progressPercent}%)
+                </span>
+              </div>
 
-            <nav className="mt-4 space-y-1.5">
-              {COURSE_MODULES.map((mod) => {
-                const isCurrent = mod.id === activeModuleId;
-                const isDone = completedModules.includes(mod.id);
-                const levelColor =
-                  mod.level === 'Fundamentos'
-                    ? 'text-cyan-300 border-cyan-500/30 bg-cyan-500/10'
-                    : mod.level === 'Intermedio'
-                    ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
-                    : mod.level === 'Avanzado'
-                    ? 'text-amber-300 border-amber-500/30 bg-amber-500/10'
-                    : 'text-purple-300 border-purple-500/30 bg-purple-500/10';
-
-                return (
-                  <button
-                    key={mod.id}
-                    onClick={() => handleSelectModule(mod.id)}
-                    className={`w-full text-left p-2.5 rounded-xl border transition-all flex items-start gap-2.5 ${
-                      isCurrent
-                        ? 'bg-slate-800 border-cyan-500/60 shadow-md'
-                        : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-900 hover:border-slate-700'
-                    }`}
-                  >
+              {/* Barra de Progreso Pixel-Art de 12 Segmentos LED (1 bloque por módulo) */}
+              <div className="grid grid-cols-12 gap-1 bg-black p-1.5 border-2 border-slate-800">
+                {COURSE_MODULES.map((m) => {
+                  const done = completedModules.includes(m.id);
+                  const active = m.id === activeModuleId;
+                  return (
                     <div
-                      className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-mono font-bold shrink-0 ${
-                        isDone
-                          ? 'bg-emerald-500 text-slate-950'
-                          : isCurrent
-                          ? 'bg-cyan-500 text-slate-950'
-                          : 'bg-slate-800 text-slate-400'
+                      key={m.id}
+                      title={`Módulo ${m.id}: ${done ? 'Completado' : active ? 'En curso' : 'Pendiente'}`}
+                      className={`h-3 border ${
+                        done
+                          ? 'bg-emerald-400 border-emerald-200'
+                          : active
+                          ? 'bg-cyan-400 border-white animate-pulse'
+                          : 'bg-slate-900 border-slate-800'
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+
+              <nav className="mt-4 space-y-2">
+                {COURSE_MODULES.map((mod) => {
+                  const isCurrent = mod.id === activeModuleId;
+                  const isDone = completedModules.includes(mod.id);
+                  const levelColor =
+                    mod.level === 'Fundamentos'
+                      ? 'text-cyan-300 border-cyan-500/40 bg-cyan-500/10'
+                      : mod.level === 'Intermedio'
+                      ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                      : mod.level === 'Avanzado'
+                      ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                      : 'text-purple-300 border-purple-500/40 bg-purple-500/10';
+
+                  return (
+                    <button
+                      key={mod.id}
+                      onClick={() => handleSelectModule(mod.id)}
+                      className={`w-full text-left p-2.5 border-2 transition-all flex items-start gap-2.5 ${
+                        isCurrent
+                          ? 'bg-[#0e2235] border-cyan-400 shadow-pixel-cyan'
+                          : 'bg-[#050a10] border-slate-800 hover:bg-slate-900 hover:border-slate-600'
                       }`}
                     >
-                      {isDone ? '✓' : mod.id}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-slate-100 leading-snug">
-                        {mod.title.replace(/^Módulo \d+:\s*/, '')}
+                      <div
+                        className={`mt-0.5 w-6 h-6 border flex items-center justify-center text-[11px] font-pixel font-bold shrink-0 ${
+                          isDone
+                            ? 'bg-emerald-400 text-slate-950 border-black'
+                            : isCurrent
+                            ? 'bg-cyan-400 text-slate-950 border-white'
+                            : 'bg-slate-900 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {isDone ? '✓' : mod.id}
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${levelColor}`}>
-                          {mod.level}
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-mono">{mod.duration}</span>
+                      <div className="min-w-0 flex-1 font-mono">
+                        <div className="text-xs font-bold text-slate-100 leading-snug">
+                          {mod.title.replace(/^Módulo \d+:\s*/, '')}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[10px] font-pixel px-1.5 py-0.2 border ${levelColor}`}>
+                            {mod.level}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">{mod.duration}</span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </nav>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
           </div>
 
           {/* Active Microcontroller Datasheet Summary Card */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                <Cpu className="w-4 h-4" /> Ficha Técnica Activa
-              </span>
-              <span className="text-xs font-mono font-bold text-white">{currentMcu.name}</span>
+          <div className="retro-window overflow-hidden">
+            <div className="retro-titlebar px-3 py-1.5 flex items-center justify-between text-[11px] font-pixel text-amber-300">
+              <span>╔═ [ DATASHEET_CHIP.INF ]</span>
+              <span>[{currentMcu.bitWidth}B]</span>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">{currentMcu.tagline}</p>
-
-            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-1.5 text-xs font-mono">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Arquitectura:</span>
-                <span className="text-cyan-300 text-right">{currentMcu.isa}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Ancho de Bus:</span>
-                <span className="text-white">{currentMcu.bitWidth} bits</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Frecuencia:</span>
-                <span className="text-emerald-300">{currentMcu.clockSpeed}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Flash / RAM:</span>
-                <span className="text-white">
-                  {currentMcu.flash} / {currentMcu.ram}
+            <div className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-pixel uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <Cpu className="w-4 h-4" /> Ficha Silicio
+                </span>
+                <span className="text-xs font-pixel font-bold text-white bg-slate-950 px-2 py-0.5 border border-amber-400/50">
+                  {currentMcu.name}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Voltaje Lógico:</span>
-                <span className="text-amber-300">{currentMcu.operatingVoltage}</span>
-              </div>
-            </div>
+              <p className="text-xs text-slate-300 leading-relaxed">{currentMcu.tagline}</p>
 
-            <div>
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-1">
-                Por qué estudiar este chip:
-              </span>
-              <p className="text-xs text-slate-300 leading-relaxed">{currentMcu.pedagogicalRole}</p>
+              <div className="bg-black border-2 border-slate-800 p-3 space-y-1.5 text-xs font-mono">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Arquitectura:</span>
+                  <span className="text-cyan-300 text-right">{currentMcu.isa}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Ancho de Bus:</span>
+                  <span className="text-white">{currentMcu.bitWidth} bits</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Frecuencia:</span>
+                  <span className="text-emerald-300">{currentMcu.clockSpeed}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Flash / RAM:</span>
+                  <span className="text-white">
+                    {currentMcu.flash} / {currentMcu.ram}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Voltaje Lógico:</span>
+                  <span className="text-amber-300">{currentMcu.operatingVoltage}</span>
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[10px] font-pixel uppercase tracking-wider text-amber-300 font-bold block mb-1">
+                  Por qué estudiar este chip:
+                </span>
+                <p className="text-xs text-slate-300 leading-relaxed">{currentMcu.pedagogicalRole}</p>
+              </div>
             </div>
           </div>
         </aside>
@@ -431,63 +565,75 @@ export function App() {
         {/* RIGHT COLUMN: MODULE LESSON + NOTEBOOK + CODE + LABS + EXERCISES */}
         <main className="lg:col-span-9 space-y-6">
           {/* Module Header Banner */}
-          <section className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-800/90 border border-slate-800 rounded-2xl p-5 shadow-xl">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                  Módulo {currentModule.id} (Ruta 0 a {COURSE_MODULES.length - 1}) • {currentModule.level}
-                </span>
-                <span className="text-xs font-mono text-slate-400">
-                  Viendo en: <strong className="text-white">{currentMcu.name}</strong>
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  disabled={currentModule.id <= 0}
-                  onClick={() => handleSelectModule(currentModule.id - 1)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-300 disabled:opacity-40 hover:bg-slate-800 flex items-center gap-1"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" /> Anterior
-                </button>
-                <button
-                  disabled={currentModule.id >= COURSE_MODULES.length - 1}
-                  onClick={() => handleSelectModule(currentModule.id + 1)}
-                  className="px-2.5 py-1 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs disabled:opacity-40 hover:bg-cyan-400 flex items-center gap-1"
-                >
-                  Siguiente <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
+          <section className="retro-window overflow-hidden">
+            <div className="retro-titlebar px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-pixel">
+              <span className="text-cyan-300">
+                ╔══ [ SECTOR_ROM_0x0{currentModule.id.toString(16).toUpperCase()} // PUENTE_PEDAGÓGICO.C ] ══╗
+              </span>
+              <span className="text-emerald-400 font-mono">
+                CHIP_ACTIVO: {currentMcu.name} [─][□][×]
+              </span>
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-              {currentModule.title}
-            </h2>
-            <p className="text-sm text-slate-300 mt-1">{currentModule.subtitle}</p>
-
-            {/* THE PEDAGOGICAL BRIDGE: 3 COLUMNS */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-5">
-              <div className="bg-rose-950/20 border border-rose-500/30 rounded-xl p-3.5">
-                <div className="text-xs font-bold uppercase tracking-wider text-rose-300 mb-1">
-                  1. El Extremo Superficial (Lo que ocultan los cursos básicos)
+            <div className="p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 text-xs font-pixel font-bold bg-cyan-400 text-slate-950 border border-white">
+                    MÓDULO {currentModule.id} (0..{COURSE_MODULES.length - 1}) • {currentModule.level}
+                  </span>
+                  <span className="text-xs font-mono text-emerald-300">
+                    &gt; TARGET: <strong className="text-white">{currentMcu.name}</strong>
+                  </span>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">{currentModule.superficialMyth}</p>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={currentModule.id <= 0}
+                    onClick={() => handleSelectModule(currentModule.id - 1)}
+                    className="px-2.5 py-1 bg-slate-950 border-2 border-slate-700 text-xs font-pixel text-slate-200 disabled:opacity-40 hover:bg-slate-800 flex items-center gap-1"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" /> ANTERIOR
+                  </button>
+                  <button
+                    disabled={currentModule.id >= COURSE_MODULES.length - 1}
+                    onClick={() => handleSelectModule(currentModule.id + 1)}
+                    className="px-2.5 py-1 bg-cyan-400 text-slate-950 font-pixel font-bold text-xs border-2 border-white disabled:opacity-40 hover:bg-cyan-300 flex items-center gap-1"
+                  >
+                    SIGUIENTE <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
-              <div className="bg-amber-950/20 border border-amber-500/30 rounded-xl p-3.5">
-                <div className="text-xs font-bold uppercase tracking-wider text-amber-300 mb-1">
-                  2. El Extremo Abrumador (Lo que suelta el Datasheet sin filtro)
-                </div>
-                <p className="text-xs text-slate-300 leading-relaxed font-mono">
-                  {currentModule.overwhelmingDatasheet}
-                </p>
-              </div>
+              <h2 className="text-lg sm:text-xl font-pixel font-bold text-white tracking-tight">
+                {currentModule.title}
+                <span className="cursor-80s" />
+              </h2>
+              <p className="text-sm text-amber-200/90 mt-1 font-mono">{currentModule.subtitle}</p>
 
-              <div className="bg-emerald-950/25 border border-emerald-500/40 rounded-xl p-3.5">
-                <div className="text-xs font-bold uppercase tracking-wider text-emerald-300 mb-1 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" /> 3. El Puente Real (Cómo se conecta todo)
+              {/* THE PEDAGOGICAL BRIDGE: 3 COLUMNS */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-5">
+                <div className="bg-rose-950/25 border-2 border-rose-500/50 p-3.5 shadow-sm">
+                  <div className="text-xs font-pixel font-bold uppercase tracking-wider text-rose-300 mb-1">
+                    1. El Extremo Superficial (Lo que ocultan los cursos básicos)
+                  </div>
+                  <p className="text-xs text-slate-200 leading-relaxed">{currentModule.superficialMyth}</p>
                 </div>
-                <p className="text-xs text-slate-100 leading-relaxed">{currentModule.theBridgeExplanation}</p>
+
+                <div className="bg-amber-950/25 border-2 border-amber-500/50 p-3.5 shadow-sm">
+                  <div className="text-xs font-pixel font-bold uppercase tracking-wider text-amber-300 mb-1">
+                    2. El Extremo Abrumador (Lo que suelta el Datasheet sin filtro)
+                  </div>
+                  <p className="text-xs text-amber-100 leading-relaxed font-mono">
+                    {currentModule.overwhelmingDatasheet}
+                  </p>
+                </div>
+
+                <div className="bg-emerald-950/30 border-2 border-emerald-400/60 p-3.5 shadow-sm">
+                  <div className="text-xs font-pixel font-bold uppercase tracking-wider text-emerald-300 mb-1 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5" /> 3. El Puente Real (Cómo se conecta todo)
+                  </div>
+                  <p className="text-xs text-slate-100 leading-relaxed">{currentModule.theBridgeExplanation}</p>
+                </div>
               </div>
             </div>
           </section>
@@ -496,8 +642,17 @@ export function App() {
               CAPÍTULOS DE TEORÍA PROFUNDA (LIBRO DE TEXTO TÉCNICO)
              ================================================================= */}
           {currentDeepChapters.length > 0 && (
-            <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-6">
-              <div className="border-b border-slate-800 pb-3.5 flex flex-wrap items-center justify-between gap-2">
+            <section className="retro-window overflow-hidden">
+              <div className="retro-titlebar px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-pixel">
+                <span className="text-cyan-300">
+                  ╔══ [ MANUAL_TÉCNICO_K&amp;R // TEORÍA_PROFUNDA_M{currentModule.id}.DOC ] ══╗
+                </span>
+                <span className="text-amber-300 font-mono">
+                  MODO: CUADERNO_FÍSICO ({currentDeepChapters.length} CAPÍTULOS)
+                </span>
+              </div>
+              <div className="p-5 space-y-6">
+              <div className="border-b-2 border-slate-800 pb-3.5 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-2">
                     <BookOpen className="w-5 h-5 text-cyan-400" />
@@ -611,9 +766,12 @@ export function App() {
                             </div>
                           ))}
                         </div>
-                        <pre className="lg:col-span-6 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-cyan-200 overflow-x-auto leading-relaxed">
-                          {chapter.workedExample.codeOrMath}
-                        </pre>
+                        <div className="lg:col-span-6">
+                          <CCodeBlock
+                            code={chapter.workedExample.codeOrMath}
+                            title={`ejemplo_resuelto_${chapter.id}.c`}
+                          />
+                        </div>
                       </div>
                       <div className="text-xs text-emerald-300 font-medium bg-emerald-950/30 border border-emerald-500/30 rounded-lg p-2.5">
                         <strong>Conclusión para tu cuaderno:</strong> {chapter.workedExample.conclusion}
@@ -643,14 +801,24 @@ export function App() {
                   </article>
                 ))}
               </div>
+              </div>
             </section>
           )}
 
           {/* =================================================================
               FUNDAMENTOS TEÓRICOS, DEFINICIONES, FÓRMULAS Y EJEMPLOS DESGLOSADOS
              ================================================================= */}
-          <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-5">
-            <div className="border-b border-slate-800 pb-3.5">
+          <section className="retro-window overflow-hidden">
+            <div className="retro-titlebar px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-pixel">
+              <span className="text-amber-300">
+                ╔══ [ DICCIONARIO_SILICIO.DAT // DEFINICIONES_Y_FÓRMULAS_M{currentModule.id} ] ══╗
+              </span>
+              <span className="text-cyan-300 font-mono">
+                ENTRADAS: {currentExtended.definitions.length} • REGLAS: {currentExtended.goldenRules.length}
+              </span>
+            </div>
+            <div className="p-5 space-y-5">
+            <div className="border-b-2 border-slate-800 pb-3.5">
               <div className="flex items-center gap-2">
                 <BookMarked className="w-5 h-5 text-amber-400" />
                 <h3 className="text-base font-extrabold text-white tracking-tight">
@@ -682,9 +850,7 @@ export function App() {
                         <strong>En el Silicio:</strong> {def.siliconReality}
                       </p>
                     </div>
-                    <code className="mt-2.5 block text-[11px] font-mono bg-slate-900 px-2.5 py-1.5 rounded text-amber-300 border border-slate-800 overflow-x-auto">
-                      {def.exampleToCopy}
-                    </code>
+                    <CInlineCode code={def.exampleToCopy} className="mt-2.5" />
                   </div>
                 ))}
               </div>
@@ -700,9 +866,7 @@ export function App() {
                   {currentExtended.goldenRules.map((rule, idx) => (
                     <div key={idx} className="bg-slate-900/90 border border-slate-800 rounded-lg p-3">
                       <div className="text-xs font-bold text-white">{rule.title}</div>
-                      <code className="block my-1.5 text-xs font-mono font-bold text-emerald-300 bg-slate-950 px-2.5 py-1.5 rounded border border-emerald-500/30">
-                        {rule.formulaOrRule}
-                      </code>
+                      <CInlineCode code={rule.formulaOrRule} className="my-1.5" />
                       <p className="text-xs text-slate-300 leading-relaxed">{rule.explanation}</p>
                     </div>
                   ))}
@@ -729,9 +893,12 @@ export function App() {
                 4. Ejemplo Canónico en C Explicado Línea por Línea
               </h4>
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
-                <pre className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-3.5 text-xs font-mono text-cyan-200 overflow-x-auto leading-relaxed">
-                  {currentExtended.annotatedCodeToCopy.code}
-                </pre>
+                <div className="lg:col-span-7">
+                  <CCodeBlock
+                    code={currentExtended.annotatedCodeToCopy.code}
+                    title={`canonico_modulo_${currentModule.id}.c`}
+                  />
+                </div>
                 <div className="lg:col-span-5 space-y-2">
                   <span className="text-[11px] font-bold uppercase text-slate-400 block">
                     Desglose detallado de cada expresión:
@@ -747,13 +914,22 @@ export function App() {
                 </div>
               </div>
             </div>
+            </div>
           </section>
 
           {/* =================================================================
               EVOLUTIONARY 3-LEVEL C CODE VIEWER (SYNCED WITH ACTIVE MCU)
              ================================================================= */}
-          <section className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-            <div className="bg-slate-950/90 border-b border-slate-800 p-4 flex flex-wrap items-center justify-between gap-3">
+          <section className="retro-window overflow-hidden">
+            <div className="retro-titlebar px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-pixel">
+              <span className="text-cyan-300">
+                ╔══ [ TURBO_C_EDITOR.C // 3_CAPAS_DE_ABSTRACCIÓN :: {currentMcu.name} ] ══╗
+              </span>
+              <span className="text-emerald-400 font-mono">
+                F2:SAVE • F9:MAKE • ALT+X:EXIT
+              </span>
+            </div>
+            <div className="bg-slate-950/90 border-b-2 border-slate-800 p-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <Code2 className="w-5 h-5 text-cyan-400" />
@@ -816,11 +992,10 @@ export function App() {
                   })}
                 </div>
 
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-                  <pre className="text-xs sm:text-sm font-mono text-cyan-200 overflow-x-auto leading-relaxed">
-                    {moduleCodeForMcu[abstractionLevel]}
-                  </pre>
-                </div>
+                <CCodeBlock
+                  code={moduleCodeForMcu[abstractionLevel]}
+                  title={`${currentMcu.id}_modulo_${currentModule.id}_${abstractionLevel}.c`}
+                />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5">
@@ -849,9 +1024,10 @@ export function App() {
                         {m.badge}
                       </span>
                     </div>
-                    <pre className="text-[11px] font-mono text-slate-200 overflow-x-auto leading-relaxed">
-                      {currentModule.mcuCode[m.id][abstractionLevel]}
-                    </pre>
+                    <CCodeBlock
+                      code={currentModule.mcuCode[m.id][abstractionLevel]}
+                      title={`${m.id}_${abstractionLevel}.c`}
+                    />
                   </div>
                 ))}
               </div>
@@ -866,9 +1042,18 @@ export function App() {
           {/* =================================================================
               3-LEVEL HANDS-ON C CODING CHALLENGES + MULTI-EXERCISE BATTERY
              ================================================================= */}
-          <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-6">
+          <section className="retro-window overflow-hidden">
+            <div className="retro-titlebar px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-pixel">
+              <span className="text-emerald-300">
+                ╔══ [ VALIDACIÓN_SILICIO.EXE // RETOS_C_Y_DIAGNÓSTICO_M{currentModule.id} ] ══╗
+              </span>
+              <span className="text-cyan-300 font-mono">
+                EVALUADOR_BITWISE: ACTIVO
+              </span>
+            </div>
+            <div className="p-5 space-y-6">
             {/* Part A: 3-Level Escalera de Retos Prácticos de Código C */}
-            <div className="bg-slate-950 border border-cyan-500/30 rounded-xl p-4 space-y-4">
+            <div className="bg-slate-950 border-2 border-cyan-500/40 p-4 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                 <div>
                   <h3 className="text-sm font-extrabold text-cyan-300 uppercase tracking-wider flex items-center gap-2">
@@ -926,12 +1111,11 @@ export function App() {
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
                 <div className="lg:col-span-7 space-y-2">
-                  <textarea
-                    rows={3}
+                  <CLiveCodeEditor
+                    rows={4}
                     value={challengeCodeInput}
-                    onChange={(e) => setChallengeCodeInput(e.target.value)}
-                    spellCheck={false}
-                    className="w-full bg-slate-900 border border-slate-700 focus:border-cyan-400 focus:outline-none rounded-xl p-3 text-xs font-mono text-emerald-300"
+                    onChange={(nextVal) => setChallengeCodeInput(nextVal)}
+                    fileName={`reto_m${currentModule.id}_nivel_${selectedChallengeIdx + 1}.c`}
                   />
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -1142,9 +1326,24 @@ export function App() {
                 );
               })}
             </div>
+            </div>
           </section>
         </main>
       </div>
+
+      {/* ===================================================================
+          PIE DE PÁGINA RETRO OCHENTERO: HOMENAJE A BELL LABS Y K&R C (1978/1989)
+         =================================================================== */}
+      <footer className="bg-black border-t-2 border-cyan-500/40 px-4 py-3 mt-6 text-xs font-mono text-slate-400">
+        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-emerald-400 font-pixel text-[11px]">
+            <span>EOF // BELL LABS UNIX &amp; K&amp;R C SPIRIT (1972–1989)</span>
+          </div>
+          <div className="text-[11px] text-slate-400">
+            ATmega328P • STM32F401RE • ESP32-C3 • nRF52840 • RP2040 — Normativa Aeroespacial ECSS / NASA / MISRA-C
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

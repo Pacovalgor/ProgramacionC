@@ -2,19 +2,320 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * ============================================================================
+ * MOTOR VISUAL RETRO DE LOS AÑOS 80 (4 PALETAS EGA/VGA/CRT + TARJETAS PIXEL)
+ * ============================================================================
+ * Reemplaza por completo la estética "SaaS oscura (slate-900 + bordes redondeados)"
+ * por auténticas paletas de hardware de los años 80 y tarjetas con marco sólido de 2px
+ * y sombra pixelada dura de 4px/6px.
+ *
+ * Modos incluidos:
+ * 1. `theme-turboc`  : Borland Turbo C 2.0 / MS-DOS EGA (Azul Cobalto, Amarillo EGA, Cian, Gris TUI).
+ * 2. `theme-amber`   : Monitor CRT Fósforo Ámbar P3 (DEC VT220 / Bell Labs 1983).
+ * 3. `theme-green`   : Monitor CRT Fósforo Verde P31 (IBM 5151 / Osciloscopio Tektronix).
+ * 4. `theme-arcade`  : Pixel-Art 8-Bit (Paleta de 16 colores con Púrpura Noche, Oro, Magenta y Cian).
+ */
+
+:root,
+.theme-turboc {
+  --bg-main: #001253;
+  --bg-grid: rgba(85, 255, 255, 0.08);
+  --bg-window: #001b77;
+  --bg-card: #002292;
+  --bg-card-inner: #001042;
+  --bg-code: #000824;
+  --bg-titlebar: #00aaaa;
+  --text-titlebar: #000000;
+  --border-strong: #55ffff;
+  --border-card: #55ffff;
+  --border-inner: #3b82f6;
+  --text-main: #ffffff;
+  --text-body: #e6f4ff;
+  --text-muted: #93c5fd;
+  --accent-primary: #ffff55;
+  --accent-secondary: #55ffff;
+  --accent-ok: #55ff55;
+  --shadow-color: #000000;
+}
+
+.theme-amber {
+  --bg-main: #110900;
+  --bg-grid: rgba(255, 176, 0, 0.07);
+  --bg-window: #1b0f00;
+  --bg-card: #241400;
+  --bg-card-inner: #120a00;
+  --bg-code: #090500;
+  --bg-titlebar: #ffb000;
+  --text-titlebar: #000000;
+  --border-strong: #ffb000;
+  --border-card: #d97706;
+  --border-inner: #92400e;
+  --text-main: #fffbeb;
+  --text-body: #fde68a;
+  --text-muted: #fbbf24;
+  --accent-primary: #ffb000;
+  --accent-secondary: #ffd000;
+  --accent-ok: #a3e635;
+  --shadow-color: #000000;
+}
+
+.theme-green {
+  --bg-main: #020f05;
+  --bg-grid: rgba(0, 255, 102, 0.07);
+  --bg-window: #051b0b;
+  --bg-card: #082611;
+  --bg-card-inner: #031207;
+  --bg-code: #010803;
+  --bg-titlebar: #00dd55;
+  --text-titlebar: #000000;
+  --border-strong: #00ff66;
+  --border-card: #10b981;
+  --border-inner: #047857;
+  --text-main: #ecfdf5;
+  --text-body: #bbf7d0;
+  --text-muted: #6ee7b7;
+  --accent-primary: #00ff66;
+  --accent-secondary: #a3e635;
+  --accent-ok: #4ade80;
+  --shadow-color: #000000;
+}
+
+.theme-arcade {
+  --bg-main: #150a21;
+  --bg-grid: rgba(255, 42, 133, 0.09);
+  --bg-window: #211134;
+  --bg-card: #2b1744;
+  --bg-card-inner: #160b24;
+  --bg-code: #0c0514;
+  --bg-titlebar: #ff2a85;
+  --text-titlebar: #ffffff;
+  --border-strong: #ffcc00;
+  --border-card: #00f0ff;
+  --border-inner: #a855f7;
+  --text-main: #ffffff;
+  --text-body: #f3e8ff;
+  --text-muted: #d8b4fe;
+  --accent-primary: #ffcc00;
+  --accent-secondary: #00f0ff;
+  --accent-ok: #00ff88;
+  --shadow-color: #000000;
+}
+
 @layer base {
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+  html,
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    image-rendering: pixelated;
   }
-  ::-webkit-scrollbar-track {
-    background: #090d16;
+
+  /* Fuerza esquinas 100% rectas (0px) en TODAS las tarjetas, tablas, códigos y etiquetas */
+  *,
+  *::before,
+  *::after,
+  .rounded,
+  .rounded-sm,
+  .rounded-md,
+  .rounded-lg,
+  .rounded-xl,
+  .rounded-2xl,
+  .rounded-3xl,
+  .rounded-full {
+    border-radius: 0px !important;
   }
-  ::-webkit-scrollbar-thumb {
-    background: #1e293b;
-    border-radius: 4px;
+
+  /* Títulos principales con fuente Pixel-Art de 8 bits */
+  h1,
+  h2,
+  h3 {
+    font-family: 'Silkscreen', 'Press Start 2P', monospace;
+    letter-spacing: -0.02em;
+    text-shadow: 2px 2px 0px #000000;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #334155;
+
+  h4 {
+    font-family: 'Silkscreen', 'IBM Plex Mono', monospace;
+    letter-spacing: -0.01em;
   }
+
+  /* Botones con relieve pixelado de 8-bit y hundimiento físico al pulsar */
+  button {
+    font-family: 'Silkscreen', 'IBM Plex Mono', monospace;
+    border: 2px solid var(--border-card) !important;
+    box-shadow: 4px 4px 0px 0px #000000 !important;
+    transition: transform 50ms steps(2), box-shadow 50ms steps(2), background-color 60ms steps(2);
+  }
+
+  button:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0px 0px #000000 !important;
+  }
+
+  button:active:not(:disabled) {
+    transform: translate(3px, 3px);
+    box-shadow: 1px 1px 0px 0px #000000 !important;
+  }
+
+  /* Bloques de código estilo editor retro MS-DOS / CRT */
+  pre:not(.ide-syntax-pre) {
+    background-color: #14161a !important;
+    border: 2px solid var(--border-strong) !important;
+    box-shadow: 5px 5px 0px 0px #000000 !important;
+    color: #D4D4D4 !important;
+  }
+
+  pre.ide-syntax-pre {
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    color: #D4D4D4 !important;
+  }
+
+  /* Tablas técnicas con rejilla sólida estilo hoja de datos años 80 */
+  table {
+    border: 2px solid var(--border-strong) !important;
+    box-shadow: 4px 4px 0px 0px #000000 !important;
+  }
+
+  th {
+    font-family: 'Silkscreen', monospace;
+    background-color: var(--bg-card-inner) !important;
+    color: var(--accent-primary) !important;
+    border-bottom: 2px solid var(--border-strong) !important;
+    border-right: 1px solid var(--border-inner) !important;
+  }
+
+  td {
+    border-bottom: 1px solid var(--border-inner) !important;
+    border-right: 1px solid var(--border-inner) !important;
+  }
+}
+
+/* ============================================================================
+   SOBRESCRITURA DE TARJETAS INTERNAS (ADIÓS AL SLATE-900/950 MODERNO)
+   ============================================================================ */
+
+/* Fondo principal con cuadrícula CAD ochentera */
+.retro-cad-grid {
+  background-color: var(--bg-main) !important;
+  background-image:
+    linear-gradient(to right, var(--bg-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--bg-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Ventana principal tipo Borland Turbo C / Estación UNIX */
+.retro-window {
+  background-color: var(--bg-window) !important;
+  border: 3px solid var(--border-strong) !important;
+  box-shadow: 8px 8px 0px 0px #000000 !important;
+  position: relative;
+}
+
+/* Barra superior de cada ventana TUI (color sólido contrastado de los 80) */
+.retro-titlebar {
+  font-family: 'Silkscreen', monospace;
+  background-color: var(--bg-titlebar) !important;
+  color: var(--text-titlebar) !important;
+  border-bottom: 3px solid var(--border-strong) !important;
+  font-weight: 700;
+  text-shadow: none !important;
+}
+
+.retro-titlebar span {
+  color: var(--text-titlebar) !important;
+}
+
+/* Transformación automática de todas las tarjetas internas (capítulos, definiciones, pasos, labs) */
+.retro-window article,
+.retro-window .bg-slate-900,
+.retro-window .bg-slate-900\/90,
+.retro-window .bg-slate-900\/80,
+.retro-window .bg-slate-900\/70,
+.retro-window .bg-slate-900\/60 {
+  background-color: var(--bg-card) !important;
+  border: 2px solid var(--border-card) !important;
+  box-shadow: 5px 5px 0px 0px #000000 !important;
+}
+
+.retro-window .bg-slate-950,
+.retro-window .bg-slate-950\/95,
+.retro-window .bg-slate-950\/90,
+.retro-window .bg-slate-950\/85,
+.retro-window .bg-slate-950\/80,
+.retro-window .bg-slate-950\/70,
+.retro-window .bg-slate-950\/60 {
+  background-color: var(--bg-card-inner) !important;
+  border: 2px solid var(--border-inner) !important;
+  box-shadow: 4px 4px 0px 0px #000000 !important;
+}
+
+/* Cajas destacadas de Fórmulas, Ejemplos Resueltos y Errores con borde doble ochentero */
+.retro-window .border-amber-500\/40,
+.retro-window .border-amber-500\/30,
+.retro-window .border-amber-500\/50 {
+  background-color: var(--bg-card-inner) !important;
+  border: 2px solid #ffb000 !important;
+  box-shadow: 5px 5px 0px 0px #000000 !important;
+}
+
+.retro-window .border-emerald-500\/40,
+.retro-window .border-emerald-500\/30,
+.retro-window .border-emerald-400\/60 {
+  background-color: var(--bg-card-inner) !important;
+  border: 2px solid #00ff66 !important;
+  box-shadow: 5px 5px 0px 0px #000000 !important;
+}
+
+.retro-window .border-rose-500\/30,
+.retro-window .border-rose-500\/50 {
+  background-color: var(--bg-card-inner) !important;
+  border: 2px solid #ff3366 !important;
+  box-shadow: 5px 5px 0px 0px #000000 !important;
+}
+
+/* Textos generales adaptados a la paleta retro activa */
+.retro-window .text-slate-200,
+.retro-window .text-slate-300 {
+  color: var(--text-body) !important;
+}
+
+.retro-window .text-slate-400 {
+  color: var(--text-muted) !important;
+}
+
+/* Scanlines CRT suaves cuando están activas */
+.crt-scanlines::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%,
+    rgba(0, 0, 0, 0.16) 50%
+  );
+  background-size: 100% 4px;
+}
+
+/* Cursor de bloque parpadeante de terminal años 80 */
+@keyframes blink80s {
+  0%, 49% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0;
+  }
+}
+
+.cursor-80s {
+  display: inline-block;
+  width: 0.65em;
+  height: 1.05em;
+  background-color: var(--accent-primary);
+  vertical-align: middle;
+  margin-left: 6px;
+  animation: blink80s 1s steps(1) infinite;
 }

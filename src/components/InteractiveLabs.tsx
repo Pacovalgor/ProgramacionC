@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { MCUProfile } from '../data/mcusData';
 import { LabViewType } from '../data/curriculumData';
+import { CCodeBlock, CLiveCodeEditor } from './CSyntaxCodeBlock';
 
 /** Unión de identificadores de las 10 estaciones de laboratorio interactivo disponibles. */
 export type ExtendedLabViewType =
@@ -705,21 +706,35 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
   const rightPins = mcu.pins.filter((p) => p.side === 'right');
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+    <div className="retro-window overflow-hidden">
+      {/* Barra de título estilo Rack de Instrumentación Tektronix / Bell Labs Años 80 */}
+      <div className="retro-titlebar px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-pixel">
+        <div className="flex items-center gap-2 text-cyan-300">
+          <span className="px-1.5 py-0.5 bg-cyan-400 text-slate-950 font-bold">HW-LAB</span>
+          <span>╔══ [ RACK_INSTRUMENTACIÓN_SILICIO // ESTACIONES_00_A_09.EXE ] ══╗</span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] font-mono text-emerald-400">
+          <span>BUS: {mcu.bitWidth}-BIT</span>
+          <span>•</span>
+          <span>CLK: {mcu.clockSpeed}</span>
+          <span className="text-slate-400 hidden sm:inline">[─][□][×]</span>
+        </div>
+      </div>
+
       {/* Lab Navigation Header */}
-      <div className="bg-slate-950/90 border-b border-slate-800 p-3">
+      <div className="bg-slate-950/95 border-b-2 border-slate-800 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-cyan-500/20 text-cyan-400 text-xs font-bold">
-              LAB
+            <span className="inline-flex items-center justify-center px-2 py-0.5 bg-amber-400 text-slate-950 text-xs font-pixel font-bold border border-black">
+              CRT-SCOPE
             </span>
-            <h3 className="text-sm font-bold text-slate-100 tracking-wide uppercase">
+            <h3 className="text-xs sm:text-sm font-bold text-slate-100 tracking-wide uppercase">
               Estación de Instrumentación, Editor C en Vivo y Diagramas de Silicio —{' '}
               <span className="text-cyan-400">{mcu.name}</span>
             </h3>
           </div>
-          <span className="text-xs text-slate-400 font-mono">
-            Arquitectura activa: {mcu.bitWidth}-bit • {mcu.isa} • {mcu.clockSpeed}
+          <span className="text-xs text-amber-300 font-mono">
+            [{mcu.isa} • {mcu.operatingVoltage}]
           </span>
         </div>
 
@@ -730,17 +745,17 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
               <button
                 key={tab.id}
                 onClick={() => onSelectLab(tab.id)}
-                className={`text-left p-2.5 rounded-xl border transition-all ${
+                className={`text-left p-2.5 border-2 transition-all ${
                   active
-                    ? 'bg-slate-800/95 border-cyan-500/60 shadow-lg shadow-cyan-950/40'
-                    : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/40 hover:border-slate-700'
+                    ? 'bg-cyan-950/90 border-cyan-400 text-white shadow-pixel-cyan'
+                    : 'bg-slate-900/90 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-cyan-500/60'
                 }`}
               >
-                <div className="flex items-center gap-1.5 font-semibold text-xs text-slate-100">
+                <div className="flex items-center gap-1.5 font-bold text-[11px] text-slate-100">
                   {tab.icon}
                   <span className="truncate">{tab.label}</span>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1 truncate">{tab.shortDesc}</p>
+                <p className="text-[10px] text-slate-400 mt-1 truncate font-mono">{tab.shortDesc}</p>
               </button>
             );
           })}
@@ -1468,9 +1483,7 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
                     </span>
                     <span className="font-mono text-[11px]">Sincronizado con los interruptores</span>
                   </div>
-                  <pre className="text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed">
-                    {getLiveXRayCCode()}
-                  </pre>
+                  <CCodeBlock code={getLiveXRayCCode()} title={`gpio_xray_${mcu.id}.c`} />
                 </div>
               </div>
             </div>
@@ -1832,12 +1845,11 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
                 </div>
               </div>
 
-              <textarea
+              <CLiveCodeEditor
                 value={customCCode}
-                onChange={(e) => setCustomCCode(e.target.value)}
+                onChange={(nextVal) => setCustomCCode(nextVal)}
                 rows={7}
-                spellCheck={false}
-                className="w-full bg-slate-900/90 border border-slate-700 focus:border-cyan-400 focus:outline-none rounded-xl p-3.5 text-xs sm:text-sm font-mono text-emerald-300 leading-relaxed"
+                fileName={`sandbox_${mcu.id}.c`}
                 placeholder="Escribe tus expresiones en C aquí, ej: REG |= (1 << 5);"
               />
 
@@ -2229,8 +2241,9 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
                   <span className="text-[10px] uppercase text-slate-400 font-bold block mb-1">
                     Código Fuente en C:
                   </span>
-                  <pre className="text-xs font-mono text-slate-200 leading-relaxed">
-{`${useVolatile ? 'volatile ' : ''}uint8_t flag = 0;
+                  <CCodeBlock
+                    title="isr_flag.c"
+                    code={`${useVolatile ? 'volatile ' : ''}uint8_t flag = 0;
 
 void ISR_Boton(void) {
     flag = 1; // En RAM vale ${ramFlagValue}
@@ -2241,7 +2254,7 @@ void esperar_evento(void) {
         // Esperando...
     }
 }`}
-                  </pre>
+                  />
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-lg p-3">
@@ -2249,23 +2262,25 @@ void esperar_evento(void) {
                     Ensamblador Generado ({optLevel}):
                   </span>
                   {useVolatile || optLevel === '-O0' ? (
-                    <pre className="text-xs font-mono text-emerald-300 leading-relaxed">
-{`.L2_bucle:
+                    <CCodeBlock
+                      title={`salida_${optLevel}.s`}
+                      code={`.L2_bucle:
   ldr r3, =flag_addr
-  ldrb r3, [r3]  ; ¡Lee la RAM en cada vuelta!
+  ldrb r3, [r3]  // ¡Lee la RAM en cada vuelta!
   cmp r3, #0
-  beq .L2_bucle  ; Sale en cuanto flag == 1
+  beq .L2_bucle  // Sale en cuanto flag == 1
   bx lr`}
-                    </pre>
+                    />
                   ) : (
-                    <pre className="text-xs font-mono text-rose-300 leading-relaxed">
-{`  ldr r3, =flag_addr
-  ldrb r3, [r3]  ; ¡Lee la RAM UNA SOLA VEZ!
+                    <CCodeBlock
+                      title={`trampa_${optLevel}.s`}
+                      code={`  ldr r3, =flag_addr
+  ldrb r3, [r3]  // ¡Lee la RAM UNA SOLA VEZ!
   cmp r3, #0
   bne .L_fin
 .L2_trampa_infinita:
-  b .L2_trampa_infinita ; ¡CONGELADO PARA SIEMPRE!`}
-                    </pre>
+  b .L2_trampa_infinita // ¡CONGELADO PARA SIEMPRE!`}
+                    />
                   )}
                 </div>
               </div>
@@ -2940,8 +2955,9 @@ void esperar_evento(void) {
 
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
                 {selectedProjectFile === 'header' && (
-                  <pre className="text-xs font-mono text-cyan-200 overflow-x-auto leading-relaxed">
-{`/* === ARCHIVO: include/motor_lib.h (Contrato Público de la Librería) === */
+                  <CCodeBlock
+                    title="include/motor_lib.h"
+                    code={`/* === ARCHIVO: include/motor_lib.h (Contrato Público de la Librería) === */
 #ifndef MOTOR_LIB_H
 #define MOTOR_LIB_H
 
@@ -2965,12 +2981,13 @@ void     motor_init(motor_handle_t *hmotor, uint8_t ch, uint16_t max_rpm);
 uint16_t motor_apply_curve(const motor_handle_t *hmotor, uint16_t target_rpm);
 
 #endif /* MOTOR_LIB_H */`}
-                  </pre>
+                  />
                 )}
 
                 {selectedProjectFile === 'source' && (
-                  <pre className="text-xs font-mono text-emerald-200 overflow-x-auto leading-relaxed">
-{`/* === ARCHIVO: src/motor_lib.c (Implementación Privada de la Librería) === */
+                  <CCodeBlock
+                    title="src/motor_lib.c"
+                    code={`/* === ARCHIVO: src/motor_lib.c (Implementación Privada de la Librería) === */
 #include "motor_lib.h"
 
 // "static" hace que esta variable sea 100% privada e invisible fuera de motor_lib.c:
@@ -2996,12 +3013,13 @@ uint16_t motor_apply_curve(const motor_handle_t *hmotor, uint16_t target_rpm) {
     }
     return CURVA_LINEALIZACION[target_rpm & 511U];
 }`}
-                  </pre>
+                  />
                 )}
 
                 {selectedProjectFile === 'main' && (
-                  <pre className="text-xs font-mono text-amber-200 overflow-x-auto leading-relaxed">
-{`/* === ARCHIVO: src/main.c (Aplicación que Usa la Librería) === */
+                  <CCodeBlock
+                    title="src/main.c"
+                    code={`/* === ARCHIVO: src/main.c (Aplicación que Usa la Librería) === */
 #include "motor_lib.h" // Conoce los tipos y prototipos públicos
 
 // Dos instancias independientes manejadas por la misma librería:
@@ -3022,12 +3040,13 @@ int main(void) {
         (void)motor_apply_curve(&s_motor_izquierdo, 1800U);
     }
 }`}
-                  </pre>
+                  />
                 )}
 
                 {selectedProjectFile === 'makefile' && (
-                  <pre className="text-xs font-mono text-purple-200 overflow-x-auto leading-relaxed">
-{`# === ARCHIVO: Makefile Profesional (Compilación Separada + Librería .a) ===
+                  <CCodeBlock
+                    title="Makefile"
+                    code={`# === ARCHIVO: Makefile Profesional (Compilación Separada + Librería .a) ===
 CC      = arm-none-eabi-gcc
 AR      = arm-none-eabi-ar
 CFLAGS  = -mcpu=cortex-m4 -mthumb -Os -Wall -Wextra -Iinclude -ffunction-sections -fdata-sections
@@ -3045,7 +3064,7 @@ libmotor.a: motor_lib.o
 firmware.elf: src/main.c libmotor.a
 \t$(CC) $(CFLAGS) -c src/main.c -o main.o
 \t$(CC) main.o ${forgetLinkLibBug ? '# (Olvidaste poner -L. -lmotor)' : '-L. -lmotor'} $(LDFLAGS) -o firmware.elf`}
-                  </pre>
+                  />
                 )}
               </div>
             </div>

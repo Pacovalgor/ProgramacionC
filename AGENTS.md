@@ -18,6 +18,8 @@ Este repositorio contiene **ProgramacionC**, una plataforma interactiva y libro 
      3. `proDriver`: Abstracción profesional / HAL / algoritmos de producción.
 5. **Mantenibilidad y Comentarios de Código:**
    - Mantén todo el código TypeScript/React y los bloques de datos perfectamente documentados mediante comentarios JSDoc y encabezados de sección claros en español.
+6. **Sincronización Automática con GitHub y GitHub Pages:**
+   - Tras verificar que `npm run build` compila con `0` errores, realiza siempre `git add`, `git commit` descriptivo en español y `git push origin main` para que el repositorio (`https://github.com/Pacovalgor/ProgramacionC`) y el despliegue automático en **GitHub Pages** (`.github/workflows/deploy.yml`) se actualicen inmediatamente con cada cambio.
 
 ## Mapa de Archivos de la Arquitectura
 

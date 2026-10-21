@@ -10,3 +10,4 @@ description: Reglas de arquitectura, estilo pedagógico orientado a cuaderno fí
 3. **Prohibido Sobrescribir Contenido Existente:** Cualquier ampliación futura de módulos, teoría, normativa (ECSS / NASA / DO-178C / MISRA-C), quizzes o retos debe añadirse de forma aditiva sin eliminar el contenido previo.
 4. **Mantenibilidad y Comentarios:** Todo nuevo componente, interfaz o bloque de datos debe incluir documentación JSDoc y comentarios explicativos claros.
 5. **Verificación de Compilación:** Tras cualquier cambio en `src/`, verifica siempre con `npm run build` (`tsc && vite build`) que existen `0` errores de TypeScript.
+6. **Sincronización Automática con GitHub y GitHub Pages:** Después de cada cambio verificado con `npm run build`, ejecuta siempre `git add .`, `git commit -m "..."` y `git push origin main` para mantener actualizado el repositorio en GitHub y disparar el despliegue automático en GitHub Pages.
