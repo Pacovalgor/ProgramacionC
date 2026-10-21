@@ -135,6 +135,12 @@ export const COURSE_MODULES: CourseModule[] = [
         title: '3. Estructuras (struct), typedef y el Operador Flecha (->)',
         concept: 'Un struct agrupa varias variables en direcciones contiguas de memoria. Cuando tienes la estructura usas el punto (sensor.temp), pero cuando tienes un PUNTERO a la estructura usas la flecha (p_sensor->temp). ¡Así es exactamente como se controlan los periféricos en C!',
         codeSnippet: `typedef struct {\n    uint32_t MODER; // Offset +0 bytes\n    uint32_t ODR;   // Offset +4 bytes\n} Puerto_t;\n\nPuerto_t mi_puerto;\nPuerto_t *ptr = &mi_puerto;\nmi_puerto.ODR = 1U; // Acceso directo con PUNTO (.)\nptr->ODR      = 1U; // Acceso por puntero con FLECHA (->) ¡Equivale a (*ptr).ODR!`
+      },
+      {
+        title: '4. Sufijos de Literales (U, UL) y las 6 Operaciones Sagradas de Bits',
+        concept:
+          'En C estándar, un número sin sufijo (como 1) es un entero con signo (signed int). Desplazarlo al bit 31 (1 << 31) provoca desbordamiento de signo y Comportamiento Indefinido (Undefined Behavior). Por eso en sistemas embebidos SIEMPRE usamos sufijos: "U" (Unsigned) y "UL" (Unsigned Long, 32 bits garantizados en cualquier arquitectura). Con ellos dominas las 6 operaciones elementales sobre cualquier registro.',
+        codeSnippet: `// Las 6 Operaciones Sagradas para copiar en el Cuaderno Físico:\nREG |=  (1UL << n);             // 1. SET: Poner bit n a 1 (x | 0 = x)\nREG &= ~(1UL << n);             // 2. CLEAR: Poner bit n a 0 con NOT (~)\nREG ^=  (1UL << n);             // 3. TOGGLE: Conmutar bit n (0->1 o 1->0 con XOR)\nuint32_t b = (REG >> n) & 1UL;  // 4. READ: Extraer el valor del bit (devuelve 0 o 1)\nif ((REG & (1UL << n)) != 0UL)  // 5. TEST 1: Comprobar si el bit está activo\nif ((REG & (1UL << n)) == 0UL)  // 6. TEST 0: Comprobar si el bit está en bajo (ej. pulsador)`
       }
     ],
     mcuCode: {
@@ -382,9 +388,10 @@ typedef struct {
         codeSnippet: `#include <stdint.h>\nuint8_t  reg_avr   = 0x25U;        // Exactamente 8 bits (1 byte)\nuint32_t reg_stm32 = 0x40020014UL; // Exactamente 32 bits (4 bytes)`
       },
       {
-        title: '2. Las 4 Jugadas Maestras de Bits (Bitwise Idioms)',
-        concept: 'Nunca machaques un registro entero con "=" si solo quieres cambiar un pin, o apagarás otros periféricos que comparten ese registro. Usa máscaras con desplazamiento (1U << bit).',
-        codeSnippet: `REG |=  (1U << 5);          // 1. ENCENDER bit 5 (Set)\nREG &= ~(1U << 5);          // 2. APAGAR bit 5 (Clear)\nREG ^=  (1U << 5);          // 3. INVERTIR bit 5 (Toggle)\nREG = (REG & ~(3U << 10)) | (2U << 10); // 4. Campo de 2 bits en pos 10`
+        title: '2. Campos Multi-Bit y Librería de Macros Blindada (MISRA-C)',
+        concept:
+          'Cuando un registro agrupa 2, 3 o 4 bits juntos (como los modos de entrada/salida de GPIOx->MODER), aplicamos la técnica Clear & Insert: primero se limpian los bits con la máscara invertida y luego se inserta el valor nuevo. Además, protegemos las macros de bit-banging con dobles paréntesis para evitar trampas mortales de precedencia de operadores.',
+        codeSnippet: `// 1. Modificación de Campo Multi-Bit (Clear & Insert):\nREG = (REG & ~(0x03UL << 10)) | ((nuevo_modo & 0x03UL) << 10);\n\n// 2. Macros Blindadas según Norma MISRA-C:2012:\n#define BIT(n)                     ((1UL) << (n))\n#define BIT_SET(reg, n)            ((reg) |= BIT(n))\n#define BIT_CLEAR(reg, n)          ((reg) &= ~BIT(n))\n#define FIELD_WRITE(reg, msk, pos, val) \\\n    ((reg) = ((reg) & ~((msk) << (pos))) | (((val) & (msk)) << (pos)))`
       },
       {
         title: '3. Anatomía de un Puntero a Registro Físico',

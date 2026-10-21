@@ -241,6 +241,88 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           seniorFix: 'Serializa byte a byte en un buffer uint8_t o usa __attribute__((packed)) en structs de protocolo de red.'
         }
       ]
+    },
+    {
+      id: 'm0-c5',
+      chapterNumber: 'Capítulo 0.5',
+      title: 'Anatomía de Literales (U / UL) y las 6 Operaciones Sagradas de Bits en Memoria',
+      subtitle: 'Por qué "1 << 31" es Comportamiento Indefinido y la guía canónica paso a paso para encender, apagar, conmutar y leer bits',
+      paragraphs: [
+        'En el estándar C, cualquier número escrito directamente en el código sin sufijo (como 1, 5 o 84000000) es interpretado por el compilador como un entero con signo (signed int). En un procesador de 32 bits, el bit 31 es el bit de signo negativo. Si escribes (1 << 31), estás desplazando un número positivo hasta convertirlo en negativo, lo que en el estándar formal de C (ISO C99/C11 §6.5.7) se clasifica como Comportamiento Indefinido (Undefined Behavior): el compilador tiene libertad para eliminar la instrucción, alterar la lógica o generar fallos impredecibles en producción.',
+        'Para evitar esta catástrofe silenciosa, todo número usado en manipulación de registros y máscaras debe llevar sufijos explícitos: "U" (Unsigned, sin signo), "L" (Long, al menos 32 bits garantizados) o "UL" (Unsigned Long de 32 bits). En procesadores de 8/16 bits (como el ATmega328P de Arduino), un int mide solo 16 bits; por tanto, escribir (1 << 16) da como resultado 0 (¡se sale del registro y se pierde!), mientras que (1UL << 16) fuerza al compilador a promover la operación a 32 bits con total seguridad.',
+        'Con los literales correctamente tipados (1UL << n), el ingeniero de firmware domina las 6 operaciones fundamentales de bits. Cada una explota una propiedad algebraica exacta de las compuertas lógicas: la compuerta OR (|) enciende bits porque x | 0 = x y x | 1 = 1; la compuerta AND (&) con máscara invertida (~) apaga bits porque x & 1 = x y x & 0 = 0; la compuerta XOR (^) conmuta bits porque x ^ 1 invierte x y x ^ 0 = x; y el desplazamiento (>>) combinado con (& 1UL) extrae el estado físico exacto del pin.'
+      ],
+      formulas: [
+        {
+          name: '1. SET (Poner bit n a 1)',
+          expression: 'REG |= (1UL << n)',
+          explanation: 'Fuerza el bit n a nivel alto (1) dejando intactos todos los demás bits del registro (propiedad x | 0 = x).'
+        },
+        {
+          name: '2. CLEAR (Poner bit n a 0)',
+          expression: 'REG &= ~(1UL << n)',
+          explanation: 'Fuerza el bit n a nivel bajo (0) usando el operador de complemento a uno (~). Los demás bits se multiplican por 1 y no se alteran.'
+        },
+        {
+          name: '3. TOGGLE (Invertir bit n)',
+          expression: 'REG ^= (1UL << n)',
+          explanation: 'Conmuta el bit n (si era 0 pasa a 1, si era 1 pasa a 0) mediante XOR. Es la técnica estándar para hacer parpadear pines y LEDs.'
+        },
+        {
+          name: '4. READ (Extraer valor del bit n)',
+          expression: 'valor = (REG >> n) & 1UL',
+          explanation: 'Desplaza el bit de interés hasta la posición 0 y filtra con una máscara de 1 bit. Devuelve un valor limpio: exactamente 0 o 1.'
+        },
+        {
+          name: '5. TEST_SET (¿Bit n está activo?)',
+          expression: '(REG & (1UL << n)) != 0UL',
+          explanation: 'Comprueba directamente si el bit n contiene un 1 sin necesidad de desplazar. Ideal para condiciones if (...).'
+        },
+        {
+          name: '6. TEST_CLEAR (¿Bit n está en bajo?)',
+          expression: '(REG & (1UL << n)) == 0UL',
+          explanation: 'Comprueba si el bit n está a 0 (muy usado para detectar pulsadores activos a masa con resistencia pull-up).'
+        }
+      ],
+      table: {
+        headers: ['Operación', 'Sintaxis Canónica en C', 'Operador Bit a Bit', 'Efecto Matemático en Silicio'],
+        rows: [
+          ['1. SET (Encender)', 'REG |= (1UL << n);', 'OR a nivel de bits (|)', 'Bit n pasa a 1; los demás bits no cambian (x | 0 = x)'],
+          ['2. CLEAR (Apagar)', 'REG &= ~(1UL << n);', 'AND con NOT complementario (& ~)', 'Bit n pasa a 0; los demás bits no cambian (x & 1 = x)'],
+          ['3. TOGGLE (Invertir)', 'REG ^= (1UL << n);', 'XOR a nivel de bits (^)', 'Bit n conmuta (0->1 o 1->0); los demás no cambian'],
+          ['4. READ (Leer valor)', 'b = (REG >> n) & 1UL;', 'Shift derecha (>>) y AND (&)', 'Extrae el estado del bit alineado a la derecha (0 o 1)'],
+          ['5. TEST_SET (Comprobar 1)', 'if ((REG & (1UL << n)) != 0UL)', 'AND de máscara (&)', 'Evalúa a true si el bit n está en alto (1)'],
+          ['6. TEST_CLEAR (Comprobar 0)', 'if ((REG & (1UL << n)) == 0UL)', 'AND de máscara (&)', 'Evalúa a true si el bit n está en bajo (0)']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Desglose Binario Paso a Paso de por qué "REG &= ~(1U << 5)" Apaga SOLO el Bit 5',
+        problemStatement:
+          'Supongamos un registro de 8 bits con el valor inicial REG = 0b11111111 (0xFF). Aplica paso a paso la operación CLEAR sobre el bit 5 y demuestra matemáticamente por qué los otros 7 bits quedan intactos.',
+        steps: [
+          '1. Calculamos (1U << 5): desplazamos el número 1 cinco posiciones a la izquierda -> 0b00100000 (0x20).',
+          '2. Aplicamos el operador NOT de complemento a uno (~): invierte cada bit individual -> ~(0b00100000) = 0b11011111 (0xDF). Fíjate: todos los bits son 1 excepto el bit 5, que es 0.',
+          '3. Hacemos AND bit a bit entre REG y la máscara invertida: (0b11111111) & (0b11011111).',
+          '4. Para los bits 0..4 y 6..7: 1 & 1 = 1 (se conservan). Para el bit 5: 1 & 0 = 0 (se apaga). El resultado final es 0b11011111.'
+        ],
+        codeOrMath: `REG inicial:        0b 1 1 1 1 1 1 1 1\nMáscara (1U << 5):  0b 0 0 1 0 0 0 0 0\nMáscara NOT (~):    0b 1 1 0 1 1 1 1 1\n--------------------------------------\nResultado (AND &):  0b 1 1 0 1 1 1 1 1  <-- ¡Solo el bit 5 pasó a 0!`,
+        conclusion:
+          'Si olvidas poner la virgulilla (~), la operación REG &= (1U << 5) haría AND con 0b00100000, borrando a cero todos los bits del registro excepto el bit 5.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Escribir REG &= (1U << 5) para intentar apagar el bit 5',
+          whyItFails:
+            'Olvidar la virgulilla (~) hace que la máscara sea 0b00100000. Al hacer AND, todos los bits excepto el 5 se multiplican por 0 y quedan borrados, destruyendo la configuración de los otros pines del puerto.',
+          seniorFix: 'Usa siempre el operador NOT complementario: REG &= ~(1U << 5);'
+        },
+        {
+          mistake: 'Escribir 1 << 31 en procesadores ARM de 32 bits',
+          whyItFails:
+            'El literal 1 es un entero con signo (signed int). Desplazarlo al bit de signo produce desbordamiento y Comportamiento Indefinido (MISRA-C Regla 10.1).',
+          seniorFix: 'Escribe siempre 1UL << 31 con el sufijo UL.'
+        }
+      ]
     }
   ],
 
@@ -334,6 +416,77 @@ export const DEEP_THEORY_BY_MODULE: Record<number, DeepTheoryChapter[]> = {
           whyItFails:
             'El estándar C no garantiza en qué orden empaqueta los bitfields ni qué instrucción máquina (8, 16 o 32 bits) usará el compilador para escribirlos, lo cual falla en muchos buses periféricos.',
           seniorFix: 'Usa registros uint32_t explícitos y máscaras de bits desplazadas, que son 100% deterministas y portables.'
+        }
+      ]
+    },
+    {
+      id: 'm1-c3',
+      chapterNumber: 'Capítulo 1.3',
+      title: 'Campos de Múltiples Bits (Multi-Bit Fields) y Librería de Macros Blindada (MISRA-C)',
+      subtitle: 'La técnica Clear & Insert para registros como MODER y cómo blindar macros de producción con dobles paréntesis',
+      paragraphs: [
+        'En los microcontroladores modernos de 32 bits, la inmensa mayoría de los registros de configuración no controlan pines con 1 solo bit aislado, sino que asignan campos de 2, 3 o 4 bits consecutivos por cada pin o periférico (por ejemplo, el registro GPIOx->MODER en STM32 utiliza 2 bits por cada pin: 00=Entrada, 01=Salida, 10=Función Alternativa, 11=Analógico; mientras que los registros de función alternativa AFRL/AFRH usan 4 bits por pin: 0 a 15). Para modificar estos campos sin alterar ni reiniciar los pines vecinos, se aplica la técnica canónica en dos pasos: Limpiar (Clear) e Insertar (Insert).',
+        'Para implementar esta técnica, primero se crea una máscara local del tamaño del campo (por ejemplo, 0x03UL para 2 bits, 0x07UL para 3 bits o 0x0FUL para 4 bits). Se limpia el campo haciendo un AND con la máscara invertida desplazada a la posición correspondiente: REG &= ~(0x03UL << pos);. A continuación, se asegura que el nuevo valor no exceda el tamaño del campo mediante (val & 0x03UL) y se inserta con un OR: REG |= ((val & 0x03UL) << pos);. Ambos pasos se condensan en una sola expresión Read-Modify-Write atómica para el compilador.',
+        'Al convertir estas expresiones en macros reutilizables para un archivo de cabecera (bit_utils.h), entra en juego la estricta Norma MISRA-C:2012 Regla 19.10: todo parámetro individual en una macro debe estar rodeado por paréntesis (n), y la macro entera debe estar envuelta en un par exterior adicional ((...)). Sin estos paréntesis dobles, una llamada como BIT(1 + 2) o BIT(3) * 2 se expande con prioridad de operadores errónea, produciendo resultados catastróficos en vuelo o en la planta industrial.'
+      ],
+      formulas: [
+        {
+          name: '1. Escritura de Campo Multi-Bit (Clear & Insert)',
+          expression: 'REG = (REG & ~(MASK << POS)) | ((VAL & MASK) << POS)',
+          explanation: 'Limpia los bits del campo en su posición con la máscara invertida y luego fusiona el nuevo valor acotado mediante OR.'
+        },
+        {
+          name: '2. Lectura / Extracción de Campo Multi-Bit',
+          expression: 'VALOR = (REG >> POS) & MASK',
+          explanation: 'Desplaza el campo hasta la posición 0 y filtra con la máscara base. Devuelve el número entero limpio almacenado en el campo.'
+        },
+        {
+          name: '3. Macro Blindada BIT(n) (MISRA-C)',
+          expression: '#define BIT(n) ((1UL) << (n))',
+          explanation: 'Doble paréntesis que garantiza evaluación atómica sin importar qué expresión se pase como argumento n.'
+        },
+        {
+          name: '4. Macro Blindada FIELD_WRITE (MISRA-C)',
+          expression: '#define FIELD_WRITE(reg, msk, pos, val) ((reg) = ((reg) & ~((msk) << (pos))) | (((val) & (msk)) << (pos)))',
+          explanation: 'Macro canónica industrial para modificar cualquier campo de 2, 3 o 4 bits en cualquier registro sin efectos colaterales.'
+        }
+      ],
+      table: {
+        headers: ['Campo a Modificar', 'Anchura del Campo', 'Máscara Base Hexadecimal', 'Operación de Escritura Canónica en C'],
+        rows: [
+          ['Modo Pin GPIO (MODER)', '2 bits (0..3)', '0x03UL (0b11)', 'REG = (REG & ~(0x03UL << (pin*2))) | ((modo & 0x03UL) << (pin*2));'],
+          ['Fuente de Reloj / Prescaler', '3 bits (0..7)', '0x07UL (0b111)', 'REG = (REG & ~(0x07UL << pos)) | ((src & 0x07UL) << pos);'],
+          ['Función Alternativa (AFRL/H)', '4 bits (0..15)', '0x0FUL (0b1111)', 'REG = (REG & ~(0x0FUL << (pin*4))) | ((af & 0x0FUL) << (pin*4));'],
+          ['Byte de Datos en Registro 32b', '8 bits (0..255)', '0xFFUL (0b11111111)', 'REG = (REG & ~(0xFFUL << (byte*8))) | ((b & 0xFFUL) << (byte*8));']
+        ]
+      },
+      workedExample: {
+        title: 'Ejemplo Resuelto: Configurar el Pin 5 de GPIOA en Modo Función Alternativa AF02 sin tocar los otros 15 pines',
+        problemStatement:
+          'El registro GPIOA->AFR[0] (pines 0 a 7) asigna 4 bits por pin. El Pin 5 ocupa los bits [23..20]. Escribe la instrucción canónica en C para configurar el Pin 5 con el valor AF02 (0b0010) garantizando que los otros 7 pines conserven su configuración exacta.',
+        steps: [
+          '1. Calculamos la posición inicial del campo: pos = 5 * 4 = 20 bits de desplazamiento.',
+          '2. La máscara para 4 bits es 0x0F (0b1111). Desplazada a la posición 20 queda: (0x0FUL << 20) = 0x00F00000.',
+          '3. Invertimos la máscara con NOT (~): ~(0x0FUL << 20) = 0xFF0FFFFF. Todos los bits son 1 excepto los bits [23..20], que son 0.',
+          '4. Hacemos AND con el registro para limpiar los bits [23..20]: GPIOA->AFR[0] &= ~(0x0FUL << 20);',
+          '5. Tomamos el valor nuevo AF02 (2), lo desplazamos a la posición 20 ((2UL & 0x0FUL) << 20) = 0x00200000 y lo insertamos con OR.'
+        ],
+        codeOrMath: `// Instrucción completa en una sola línea canónica:\nGPIOA->AFR[0] = (GPIOA->AFR[0] & ~(0x0FUL << 20)) | ((2UL & 0x0FUL) << 20);`,
+        conclusion:
+          'Los bits [23..20] se sustituyen de forma limpia por 0b0010 (AF02) sin que ninguno de los otros pines sufra desconexión ni corrupción de datos.'
+      },
+      pitfalls: [
+        {
+          mistake: 'Olvidar enmascarar el nuevo valor con (val & MASK) antes de desplazarlo',
+          whyItFails:
+            'Si a un campo de 2 bits le pasas por error el valor 0x05 (0b101), el bit superior se desbordará e invadirá el campo del pin adyacente, corrompiendo la configuración del periférico vecino.',
+          seniorFix: 'Enmascara siempre el nuevo valor: ((val & MASK) << POS) o usa la macro FIELD_WRITE.'
+        },
+        {
+          mistake: 'Definir #define BIT(n) 1UL << n sin paréntesis dobles',
+          whyItFails:
+            'En expresiones como BIT(3) * 2 o if (x & BIT(n)), la multiplicación (*) y el AND (&) tienen distinta precedencia que el desplazamiento (<<), produciendo cálculos matemáticos completamente erróneos.',
+          seniorFix: 'Usa siempre la sintaxis obligatoria de MISRA-C: #define BIT(n) ((1UL) << (n)) con paréntesis dobles.'
         }
       ]
     }

@@ -537,28 +537,45 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
     );
   };
 
-  const applyBitwiseOperation = (op: 'set' | 'clear' | 'toggle' | 'field01' | 'reset') => {
+  const applyBitwiseOperation = (
+    op: 'set' | 'clear' | 'toggle' | 'read' | 'test1' | 'test0' | 'field01' | 'reset'
+  ) => {
     const maxMask = currentReg.width === 8 ? 0xff : 0xffffffff;
     if (op === 'set') {
       const next = ((regValue | (1 << targetBit)) >>> 0) & maxMask;
       setRegValue(next);
       setLastBitwiseOp(
-        `Ejecutado: REG |= (1UL << ${targetBit})  [Máscara OR: ${formatHex(1 << targetBit, currentReg.width)}]`
+        `1. SET: REG |= (1UL << ${targetBit})  [Máscara OR: ${formatHex(1 << targetBit, currentReg.width)}] -> Bit ${targetBit} puesto a 1`
       );
     } else if (op === 'clear') {
       const next = ((regValue & ~(1 << targetBit)) >>> 0) & maxMask;
       setRegValue(next);
       setLastBitwiseOp(
-        `Ejecutado: REG &= ~(1UL << ${targetBit}) [Máscara AND NOT: ${formatHex(
+        `2. CLEAR: REG &= ~(1UL << ${targetBit}) [Máscara AND NOT ~: ${formatHex(
           ~(1 << targetBit) & maxMask,
           currentReg.width
-        )}]`
+        )}] -> Bit ${targetBit} puesto a 0`
       );
     } else if (op === 'toggle') {
       const next = ((regValue ^ (1 << targetBit)) >>> 0) & maxMask;
       setRegValue(next);
       setLastBitwiseOp(
-        `Ejecutado: REG ^= (1UL << ${targetBit})  [Máscara XOR: ${formatHex(1 << targetBit, currentReg.width)}]`
+        `3. TOGGLE: REG ^= (1UL << ${targetBit})  [Máscara XOR: ${formatHex(1 << targetBit, currentReg.width)}] -> Bit ${targetBit} conmutado`
+      );
+    } else if (op === 'read') {
+      const bitVal = (regValue >>> targetBit) & 1;
+      setLastBitwiseOp(
+        `4. READ: valor = (REG >> ${targetBit}) & 1UL  ->  Resultado extraído: ${bitVal} (Nivel Lógico: ${bitVal ? 'ALTO / 3.3V' : 'BAJO / 0V'})`
+      );
+    } else if (op === 'test1') {
+      const isSet = ((regValue & (1 << targetBit)) >>> 0) !== 0;
+      setLastBitwiseOp(
+        `5. TEST 1: ((REG & (1UL << ${targetBit})) != 0UL)  ->  Condición: ${isSet ? 'TRUE (Bit ACTIVO)' : 'FALSE (Bit APAGADO)'}`
+      );
+    } else if (op === 'test0') {
+      const isClear = ((regValue & (1 << targetBit)) >>> 0) === 0;
+      setLastBitwiseOp(
+        `6. TEST 0: ((REG & (1UL << ${targetBit})) == 0UL)  ->  Condición: ${isClear ? 'TRUE (Bit en BAJO / Reposo)' : 'FALSE (Bit en ALTO)'}`
       );
     } else if (op === 'field01') {
       const alignedBit = Math.min(targetBit, currentReg.width - 2);
@@ -566,7 +583,7 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
       const next = ((cleared | (1 << alignedBit)) >>> 0) & maxMask;
       setRegValue(next);
       setLastBitwiseOp(
-        `Campo de 2 bits [${alignedBit + 1}:${alignedBit}] = 01 -> REG = (REG & ~(3UL << ${alignedBit})) | (1UL << ${alignedBit})`
+        `MULTI-BIT (Clear & Insert): Campo [${alignedBit + 1}:${alignedBit}] = 01 -> REG = (REG & ~(3UL << ${alignedBit})) | (1UL << ${alignedBit})`
       );
     } else {
       setRegValue(currentReg.resetValue);
@@ -1837,36 +1854,59 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
                 </select>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   onClick={() => applyBitwiseOperation('set')}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-mono hover:bg-emerald-500/30"
+                  title="1. SET: Pone el bit a 1 (OR a nivel de bits)"
+                  className="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-mono hover:bg-emerald-500/30"
                 >
-                  |= (1U &lt;&lt; {targetBit}) [Set]
+                  1. |= (1UL &lt;&lt; {targetBit}) [Set]
                 </button>
                 <button
                   onClick={() => applyBitwiseOperation('clear')}
-                  className="px-3 py-1.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-mono hover:bg-rose-500/30"
+                  title="2. CLEAR: Pone el bit a 0 usando NOT (~)"
+                  className="px-2.5 py-1 rounded bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-mono hover:bg-rose-500/30"
                 >
-                  &amp;= ~(1U &lt;&lt; {targetBit}) [Clear]
+                  2. &amp;= ~(1UL &lt;&lt; {targetBit}) [Clear]
                 </button>
                 <button
                   onClick={() => applyBitwiseOperation('toggle')}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-xs font-mono hover:bg-cyan-500/30"
+                  title="3. TOGGLE: Conmuta el bit usando XOR (^)"
+                  className="px-2.5 py-1 rounded bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-xs font-mono hover:bg-cyan-500/30"
                 >
-                  ^= (1U &lt;&lt; {targetBit}) [Toggle]
+                  3. ^= (1UL &lt;&lt; {targetBit}) [Toggle]
                 </button>
-                {currentReg.width === 32 && (
-                  <button
-                    onClick={() => applyBitwiseOperation('field01')}
-                    className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-mono hover:bg-amber-500/30"
-                  >
-                    Campo 2-Bits = 01
-                  </button>
-                )}
+                <button
+                  onClick={() => applyBitwiseOperation('read')}
+                  title="4. READ: Extrae el valor del bit (devuelve 0 o 1)"
+                  className="px-2.5 py-1 rounded bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs font-mono hover:bg-purple-500/30"
+                >
+                  4. (REG &gt;&gt; {targetBit}) &amp; 1UL [Read]
+                </button>
+                <button
+                  onClick={() => applyBitwiseOperation('test1')}
+                  title="5. TEST 1: Comprueba si el bit está en alto"
+                  className="px-2.5 py-1 rounded bg-blue-500/20 border border-blue-500/40 text-blue-300 text-xs font-mono hover:bg-blue-500/30"
+                >
+                  5. (&amp; (1UL &lt;&lt; {targetBit})) != 0
+                </button>
+                <button
+                  onClick={() => applyBitwiseOperation('test0')}
+                  title="6. TEST 0: Comprueba si el bit está en bajo"
+                  className="px-2.5 py-1 rounded bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-mono hover:bg-indigo-500/30"
+                >
+                  6. (&amp; (1UL &lt;&lt; {targetBit})) == 0
+                </button>
+                <button
+                  onClick={() => applyBitwiseOperation('field01')}
+                  title="Multi-bit Clear & Insert: Limpia el campo e inserta nuevo valor"
+                  className="px-2.5 py-1 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-mono hover:bg-amber-500/30"
+                >
+                  Multi-Bit (Clear &amp; Insert)
+                </button>
                 <button
                   onClick={() => applyBitwiseOperation('reset')}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-mono hover:bg-slate-700 flex items-center gap-1"
+                  className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 text-xs font-mono hover:bg-slate-700 flex items-center gap-1"
                 >
                   <RotateCcw className="w-3.5 h-3.5" /> Reset
                 </button>

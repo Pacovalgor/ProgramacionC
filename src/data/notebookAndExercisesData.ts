@@ -157,9 +157,35 @@ export const MODULE_EXTENDED_DATA: Record<number, ModuleExtendedContent> = {
         siliconReality:
           'Una variable local normal vive temporalmente en el Stack; una variable local "static" vive permanentemente en la sección .data/.bss de la SRAM.',
         exampleToCopy: 'static uint32_t contador_ciclos = 0UL; // Privada y persistente'
+      },
+      {
+        term: 'Sufijos de Tipos Literales (U, UL, ULL) en Silicio',
+        definition:
+          'En C estándar, un número desnudo como 1 es un entero con signo (signed int). Los sufijos indican explícitamente al compilador el tipo del literal: "U" (Unsigned, sin signo), "L" (Long, al menos 32 bits), "UL" (Unsigned Long de 32 bits) y "ULL" (Unsigned Long Long de 64 bits).',
+        siliconReality:
+          'En procesadores de 32 bits, el bit 31 es el bit de signo negativo. Desplazar un entero con signo al bit 31 (1 << 31) provoca desbordamiento de signo y Comportamiento Indefinido (Undefined Behavior). Usar 1UL garantiza aritmética sin signo limpia.',
+        exampleToCopy: 'uint32_t bit31 = (1UL << 31); // 0x80000000 seguro y sin signo'
+      },
+      {
+        term: 'Las 6 Operaciones Sagradas de Bits (Bitwise Idioms)',
+        definition:
+          'Las 6 fórmulas universales de álgebra de Boole para manipular registros: 1) SET con OR (|=), 2) CLEAR con AND y NOT complementario (&= ~), 3) TOGGLE con XOR (^=), 4) READ con desplazamiento y AND (>> n & 1UL), 5) TEST 1 (& (1<<n) != 0), y 6) TEST 0 (& (1<<n) == 0).',
+        siliconReality:
+          'Se ejecutan directamente en la Unidad Aritmético-Lógica (ALU) del microcontrolador en 1 ciclo de reloj de máquina.',
+        exampleToCopy: 'REG |= (1UL << 5);  REG &= ~(1UL << 5);  REG ^= (1UL << 5);'
       }
     ],
     goldenRules: [
+      {
+        title: 'Regla MISRA-C 10.1: Sufijo "UL" Obligatorio en Desplazamientos de Bits',
+        formulaOrRule: '(1UL << n)   [NUNCA: (1 << n)]',
+        explanation: 'En procesadores de 32 bits, desplazar un entero con signo al bit 31 produce desbordamiento de signo (Undefined Behavior). Usa siempre 1UL para garantizar que el cálculo se evalúe sin signo.'
+      },
+      {
+        title: 'Las 6 Operaciones Sagradas de Bits para Copiar a la Libreta',
+        formulaOrRule: 'SET: |= (1UL<<n) | CLEAR: &= ~(1UL<<n) | TOGGLE: ^= (1UL<<n) | READ: (>>n)&1UL | TEST_1: (&(1UL<<n))!=0 | TEST_0: (&(1UL<<n))==0',
+        explanation: 'Aprende de memoria este sexteto: son las únicas 6 operaciones que necesitas para escribir cualquier driver de periféricos en el mundo.'
+      },
       {
         title: 'Tabla de Conversión Rápida Hexadecimal <-> Binario (Nibble de 4 bits)',
         formulaOrRule: '0x0=0000 | 0x1=0001 | 0x2=0010 | 0x4=0100 | 0x8=1000 | 0xA=1010 | 0xC=1100 | 0xF=1111',
@@ -424,6 +450,11 @@ void ejemplo_completo(void) {
         explanation: 'Primero limpia el hueco con AND NOT ~(M << P) y luego inserta el nuevo valor desplazado con OR.'
       },
       {
+        title: 'Regla MISRA-C 19.10: Blindaje de Macros con Dobles Paréntesis Obligatorios',
+        formulaOrRule: '#define BIT(n) ((1UL) << (n))   |   #define FIELD_WRITE(reg, msk, pos, val) ((reg) = ((reg) & ~((msk) << (pos))) | (((val) & (msk)) << (pos)))',
+        explanation: 'Rodea siempre con paréntesis cada parámetro individual (pos) y la macro entera ((...)). Sin ellos, expresiones como BIT(1 + 2) o BIT(3) * 2 alteran la prioridad de los operadores (+ y * tienen mayor precedencia que <<) rompiendo la lógica en vuelo.'
+      },
+      {
         title: 'Normativa Espacial ECSS-E-ST-40C (Annex U.2 #4 y #5) & MISRA-C (Reglas 10.1 y 12.2)',
         formulaOrRule: 'PROHIBIDO: Mezclar operadores bit a bit (&, |, ~) con lógicos (&&, ||, !) o desplazar enteros con signo.',
         explanation: 'En normativa aeroespacial todas las máscaras y desplazamientos deben realizarse exclusivamente sobre tipos sin signo de ancho fijo (uint8_t, uint32_t) con sufijo explícito U/UL y sin superar jamás el ancho en bits del tipo.'
@@ -438,19 +469,39 @@ void ejemplo_completo(void) {
     annotatedCodeToCopy: {
       code: `#include <stdint.h>
 
+/* ====================================================================
+   LIBRERÍA DE MACROS DE BITS BLINDADA (NORMA MISRA-C:2012)
+   Regla de Oro: Todo parámetro individual (n) y la macro entera ((...))
+   deben ir obligatoriamente entre paréntesis dobles.
+   ==================================================================== */
+
+#define BIT(n)                     ((1UL) << (n))
+#define BIT_SET(reg, n)            ((reg) |= BIT(n))
+#define BIT_CLEAR(reg, n)          ((reg) &= ~BIT(n))
+#define BIT_TOGGLE(reg, n)         ((reg) ^= BIT(n))
+#define BIT_READ(reg, n)           (((reg) >> (n)) & 1UL)
+#define BIT_IS_SET(reg, n)         (((reg) & BIT(n)) != 0UL)
+#define BIT_IS_CLEAR(reg, n)       (((reg) & BIT(n)) == 0UL)
+
+/* Macro para modificar un campo de múltiples bits de forma segura: */
+#define FIELD_WRITE(reg, msk, pos, val) \\
+    ((reg) = ((reg) & ~((msk) << (pos))) | (((val) & (msk)) << (pos)))
+
+#define FIELD_READ(reg, msk, pos) \\
+    (((reg) >> (pos)) & (msk))
+
 #define PERIPH_REG  (*(volatile uint32_t *)0x40020000UL)
 
 void configurar_registro(void) {
-    PERIPH_REG |=  (1UL << 5);                 // 1. Enciende bit 5
-    PERIPH_REG &= ~(1UL << 3);                 // 2. Apaga bit 3
-    PERIPH_REG  = (PERIPH_REG & ~(3UL << 10))  // 3. Limpia bits [11:10]
-                | (2UL << 10);                 // 4. Escribe '10' en [11:10]
+    BIT_SET(PERIPH_REG, 5);                      // 1. Enciende bit 5 (1UL << 5)
+    BIT_CLEAR(PERIPH_REG, 3);                    // 2. Apaga bit 3 (~(1UL << 3))
+    FIELD_WRITE(PERIPH_REG, 0x03UL, 10, 0x02UL); // 3. Escribe '10' en bits [11:10]
 }`,
       lineNotes: [
-        '0x40020000UL: El sufijo UL indica Unsigned Long (32 bits sin signo).',
-        '(volatile uint32_t *): Convierte el número en un puntero a registro de hardware.',
-        '* inicial: Desreferencia el puntero para leer/escribir el valor del registro.',
-        '~(3UL << 10): Como 3 es 0b11 en binario, desplazarlo 10 veces e invertirlo crea un hueco de dos ceros en los bits 11 y 10.'
+        '0x40020000UL: El sufijo UL indica Unsigned Long (32 bits sin signo garantizados).',
+        '#define BIT(n) ((1UL) << (n)): Doble paréntesis obligatorio para evitar fallos de precedencia.',
+        'BIT_CLEAR usa ~(1UL << n): Invierte los bits para que solo el bit deseado valga 0.',
+        'FIELD_WRITE aplica Clear & Insert: Primero borra el hueco y luego inserta el nuevo valor acotado.'
       ]
     },
     codingChallenges: [
