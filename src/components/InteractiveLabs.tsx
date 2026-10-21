@@ -313,14 +313,20 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
   const [raceMode, setRaceMode] = useState<'rmw-odr' | 'atomic-bsrr'>('rmw-odr');
   const [raceStep, setRaceStep] = useState<number>(0);
 
-  // --- STATE FOR LAB 6: LOGIC ANALYZER (PWM & SERIAL) ---
-  const [analyzerMode, setAnalyzerMode] = useState<'pwm' | 'uart' | 'i2c' | 'spi'>('pwm');
+  // --- STATE FOR LAB 6: LOGIC ANALYZER & OSCILLOSCOPE (PWM, SERIAL, BOUNCE & SIGNAL INTEGRITY) ---
+  const [analyzerMode, setAnalyzerMode] = useState<
+    'pwm' | 'uart' | 'i2c' | 'spi' | 'bounce-debounce' | 'signal-ringing'
+  >('pwm');
   const [pwmDuty, setPwmDuty] = useState<number>(40);
   const [pwmPrescaler, setPwmPrescaler] = useState<number>(83);
   const [pwmArr, setPwmArr] = useState<number>(999);
   const [serialByte, setSerialByte] = useState<number>(0x41);
   const [i2cAddress] = useState<number>(0x3c);
   const [i2cAck, setI2cAck] = useState<boolean>(true);
+  const [bounceActive, setBounceActive] = useState<boolean>(false);
+  const [debounceFilterMethod, setDebounceFilterMethod] = useState<'none' | 'c-counter' | 'delay'>('c-counter');
+  const [termination120Active, setTermination120Active] = useState<boolean>(true);
+  const [cableLengthMeters, setCableLengthMeters] = useState<number>(25);
 
   // --- STATE FOR LAB 7: SAR ADC, CLOCK TREE PLL & WATCHDOG ---
   const [analogVoltageMv, setAnalogVoltageMv] = useState<number>(2150); // 0..3300 mV
@@ -1502,6 +1508,69 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
                   </div>
                 </div>
 
+                {/* Esquema Vectorial Animado del Pad I/O y Transistores MOSFET */}
+                <div className="mt-3 p-3 bg-black border border-slate-800 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-amber-300 font-bold flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${pMosConducting || nMosConducting ? 'bg-amber-400 animate-pulse' : 'bg-slate-600'}`} />
+                      Flujo de Corriente en Silicio (P-MOS / N-MOS I/O Pad)
+                    </span>
+                    <span className="text-slate-400 font-mono text-[10px]">
+                      Estado: {pMosConducting ? 'Fuente +VDD Conduciendo' : nMosConducting ? 'Drenador a GND Conduciendo' : 'Canal Abierto (Hi-Z)'}
+                    </span>
+                  </div>
+
+                  <div className="w-full h-28 bg-[#050c12] border border-slate-800 rounded-lg relative overflow-hidden flex items-center justify-center">
+                    <svg className="w-full h-full" viewBox="0 0 450 110">
+                      {/* Power Rails */}
+                      <line x1="20" y1="18" x2="160" y2="18" stroke="#ef4444" strokeWidth="2" />
+                      <text x="25" y="14" fill="#f87171" fontSize="9" fontFamily="monospace" fontWeight="bold">+VDD ({vccLabel})</text>
+
+                      <line x1="20" y1="95" x2="160" y2="95" stroke="#64748b" strokeWidth="2" />
+                      <text x="25" y="105" fill="#94a3b8" fontSize="9" fontFamily="monospace">0V GND</text>
+
+                      {/* Transistor Channels to Pin node */}
+                      <path d="M 120,18 L 120,38 L 160,38 L 160,55" fill="none" stroke={pMosConducting ? "#34d399" : "#334155"} strokeWidth="2.5" />
+                      <path d="M 160,55 L 160,75 L 120,75 L 120,95" fill="none" stroke={nMosConducting ? "#06b6d4" : "#334155"} strokeWidth="2.5" />
+
+                      {/* Line from node to physical pin */}
+                      <line x1="160" y1="55" x2="330" y2="55" stroke={pinElectricalState === 'HIGH' ? "#34d399" : pinElectricalState === 'LOW' ? "#06b6d4" : "#f59e0b"} strokeWidth="3" />
+
+                      {/* P-MOS Symbol Box */}
+                      <rect x="100" y="26" width="40" height="20" rx="3" fill={pMosConducting ? "#064e3b" : "#0f172a"} stroke={pMosConducting ? "#34d399" : "#475569"} strokeWidth="1.5" />
+                      <text x="120" y="39" fill={pMosConducting ? "#6ee7b7" : "#94a3b8"} fontSize="8" fontFamily="monospace" textAnchor="middle" fontWeight="bold">P-MOS</text>
+
+                      {/* N-MOS Symbol Box */}
+                      <rect x="100" y="66" width="40" height="20" rx="3" fill={nMosConducting ? "#083344" : "#0f172a"} stroke={nMosConducting ? "#06b6d4" : "#475569"} strokeWidth="1.5" />
+                      <text x="120" y="79" fill={nMosConducting ? "#67e8f9" : "#94a3b8"} fontSize="8" fontFamily="monospace" textAnchor="middle" fontWeight="bold">N-MOS</text>
+
+                      {/* Schmitt Trigger on Input Path */}
+                      <polygon points="230,55 260,70 260,40" fill="#1e1b4b" stroke="#818cf8" strokeWidth="1.5" />
+                      <text x="245" y="60" fill="#c7d2fe" fontSize="8" fontFamily="monospace" textAnchor="middle">ST</text>
+                      <path d="M 260,55 L 290,55" stroke="#818cf8" strokeWidth="1.5" />
+                      <text x="295" y="58" fill="#818cf8" fontSize="8" fontFamily="monospace">IDR</text>
+
+                      {/* Physical Pin Terminal Pad */}
+                      <rect x="330" y="42" width="90" height="26" rx="4" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
+                      <text x="375" y="58" fill="#f8fafc" fontSize="9" fontFamily="monospace" textAnchor="middle" fontWeight="bold">PIN #{selectedPin.number}</text>
+
+                      {/* Current Flowing Particles */}
+                      {pMosConducting && (
+                        <>
+                          <circle cx="140" cy="38" r="3" fill="#34d399" />
+                          <circle cx="230" cy="55" r="3" fill="#34d399" />
+                        </>
+                      )}
+                      {nMosConducting && (
+                        <>
+                          <circle cx="230" cy="55" r="3" fill="#06b6d4" />
+                          <circle cx="140" cy="75" r="3" fill="#06b6d4" />
+                        </>
+                      )}
+                    </svg>
+                  </div>
+                </div>
+
                 {/* Live Generated C Code */}
                 <div className="mt-4 bg-slate-950 border border-slate-800 rounded-xl p-3.5">
                   <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5">
@@ -2089,6 +2158,71 @@ export const InteractiveLabs: React.FC<InteractiveLabsProps> = ({
                   <span>Origen Fijo: ADC_DR (PINC=0) | Destino Incremental: SRAM (MINC=1)</span>
                   <span className="text-cyan-400">Muestras movidas: {dmaTransferCount}</span>
                 </div>
+
+                {/* Visualizador Animado de Silicio: Matriz de Buses AHB/APB y Flujo DMA */}
+                <div className="mt-3 p-3 bg-black border border-slate-800 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-mono">
+                    <span className="text-cyan-300 font-bold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                      Flujo de Silicio en Paralelo: Bus Matrix Crossbar ({mcu.name})
+                    </span>
+                    <span className="text-emerald-400 font-bold">Uso CPU en Copia: 0% (Autónomo)</span>
+                  </div>
+
+                  <div className="w-full h-32 bg-[#061017] border border-slate-800/80 rounded relative overflow-hidden flex items-center justify-center">
+                    <svg className="w-full h-full" viewBox="0 0 540 120">
+                      {/* AHB Bus Line from DMA to Matrix */}
+                      <path d="M 120,75 L 220,75" stroke="#06b6d4" strokeWidth="2.5" strokeDasharray={dmaTransferCount > 0 ? "4,4" : "none"} />
+                      {/* APB Bus Line from ADC to DMA */}
+                      <path d="M 60,35 L 60,60" stroke="#f59e0b" strokeWidth="2" />
+                      {/* AHB Bus Line from Matrix to SRAM */}
+                      <path d="M 320,75 L 420,75" stroke="#10b981" strokeWidth="2.5" strokeDasharray={dmaTransferCount > 0 ? "4,4" : "none"} />
+                      {/* Independent CPU Bus to Flash */}
+                      <path d="M 120,25 L 220,25" stroke="#475569" strokeWidth="1.5" />
+                      <path d="M 320,25 L 420,25" stroke="#475569" strokeWidth="1.5" />
+
+                      {/* ADC1 Peripheral */}
+                      <rect x="15" y="10" width="90" height="26" rx="4" fill="#1c1917" stroke="#f59e0b" strokeWidth="1.5" />
+                      <text x="60" y="27" fill="#f59e0b" fontSize="10" fontFamily="monospace" textAnchor="middle" fontWeight="bold">ADC1 (APB)</text>
+
+                      {/* DMA Controller */}
+                      <rect x="15" y="60" width="105" height="32" rx="4" fill="#082f49" stroke="#06b6d4" strokeWidth="1.8" />
+                      <text x="67" y="77" fill="#38bdf8" fontSize="10" fontFamily="monospace" textAnchor="middle" fontWeight="bold">DMA_Controller</text>
+                      <text x="67" y="88" fill="#94a3b8" fontSize="8" fontFamily="monospace" textAnchor="middle">Master AHB</text>
+
+                      {/* CPU Core */}
+                      <rect x="140" y="10" width="80" height="26" rx="4" fill="#0f172a" stroke="#64748b" strokeWidth="1" />
+                      <text x="180" y="27" fill="#cbd5e1" fontSize="9" fontFamily="monospace" textAnchor="middle">CPU (main)</text>
+
+                      {/* Bus Matrix Crossbar */}
+                      <rect x="220" y="15" width="100" height="90" rx="6" fill="#042f2e" stroke="#14b8a6" strokeWidth="1.5" />
+                      <text x="270" y="55" fill="#5eead4" fontSize="10" fontFamily="monospace" textAnchor="middle" fontWeight="bold">BUS MATRIX</text>
+                      <text x="270" y="68" fill="#99f6e4" fontSize="8" fontFamily="monospace" textAnchor="middle">Arbitraje Crossbar</text>
+                      <text x="270" y="80" fill="#2dd4bf" fontSize="8" fontFamily="monospace" textAnchor="middle">Sin espera CPU/DMA</text>
+
+                      {/* SRAM1 */}
+                      <rect x="420" y="60" width="105" height="32" rx="4" fill="#052e16" stroke="#10b981" strokeWidth="1.8" />
+                      <text x="472" y="77" fill="#4ade80" fontSize="10" fontFamily="monospace" textAnchor="middle" fontWeight="bold">SRAM (Datos)</text>
+                      <text x="472" y="88" fill="#86efac" fontSize="8" fontFamily="monospace" textAnchor="middle">dma_buffer[]</text>
+
+                      {/* Flash ROM */}
+                      <rect x="420" y="10" width="90" height="26" rx="4" fill="#1e1b4b" stroke="#6366f1" strokeWidth="1" />
+                      <text x="465" y="27" fill="#a5b4fc" fontSize="9" fontFamily="monospace" textAnchor="middle">FLASH (.text)</text>
+
+                      {/* Animated Packets Moving Across DMA Channel */}
+                      {dmaTransferCount > 0 && (
+                        <>
+                          <circle cx="170" cy="75" r="4" fill="#38bdf8" />
+                          <circle cx="370" cy="75" r="4" fill="#4ade80" />
+                        </>
+                      )}
+                    </svg>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                    <span>AHB Master 1: CPU ejecutando código Flash</span>
+                    <span className="text-cyan-300">AHB Master 2: DMA transfiriendo ráfagas a SRAM</span>
+                  </div>
+                </div>
               </div>
 
               <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4">
@@ -2437,7 +2571,9 @@ void esperar_evento(void) {
                 { id: 'pwm', label: 'Osciloscopio Timer PWM (PSC / ARR / CCR)' },
                 { id: 'uart', label: 'Trama Serie UART (8N1 LSB-First)' },
                 { id: 'i2c', label: 'Trama Bus I2C (Start + Addr + ACK)' },
-                { id: 'spi', label: 'Trama Síncrona SPI (SCK + MOSI + MISO)' }
+                { id: 'spi', label: 'Trama Síncrona SPI (SCK + MOSI + MISO)' },
+                { id: 'bounce-debounce', label: 'Rebote de Pulsador (5ms) & Filtro C' },
+                { id: 'signal-ringing', label: 'Integridad de Señal & Línea 120Ω' }
               ].map((m) => (
                 <button
                   key={m.id}
@@ -2717,6 +2853,291 @@ void esperar_evento(void) {
                       <span className="text-[10px] text-slate-400 block">CS / SS</span>
                       <span className="text-xs font-bold">1 (HIGH)</span>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MODO REBOTE DE PULSADOR & FILTRADO EN C */}
+              {analyzerMode === 'bounce-debounce' && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                    <div>
+                      <span className="text-xs font-mono font-bold text-amber-300 uppercase">
+                        Osciloscopio Dual: Señal Analógica Ruidosa vs Señal Filtrada en C
+                      </span>
+                      <p className="text-xs text-slate-400">
+                        Observa cómo rebotan los contactos mecánicos y cómo un algoritmo en C elimina las interrupciones fantasma.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setBounceActive(!bounceActive)}
+                        className={`px-3 py-1.5 rounded font-mono font-bold text-xs border transition-all ${
+                          bounceActive
+                            ? 'bg-amber-400 text-slate-950 border-white shadow-md animate-pulse'
+                            : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border-amber-500/40'
+                        }`}
+                      >
+                        {bounceActive ? '🔴 Soltar Pulsador (Bajo)' : '🟢 Presionar Pulsador (Rebote)'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Algoritmo Selector */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                    <span className="text-slate-400">Algoritmo en C:</span>
+                    {[
+                      { id: 'none' as const, label: 'Sin Filtrado (if (pin) count++)' },
+                      { id: 'delay' as const, label: 'delay_ms(20) (Bloqueante)' },
+                      { id: 'c-counter' as const, label: 'Muestreo No Bloqueante en SysTick (Recomendado)' }
+                    ].map((btn) => (
+                      <button
+                        key={btn.id}
+                        onClick={() => setDebounceFilterMethod(btn.id)}
+                        className={`px-2.5 py-1 rounded border transition-all ${
+                          debounceFilterMethod === btn.id
+                            ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200 font-bold'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* SVG Dual-Trace Oscilloscope */}
+                  <div className="p-4 bg-black border-2 border-slate-800 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <div className="flex items-center gap-4">
+                        <span className="text-amber-400 flex items-center gap-1 font-bold">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> CH1: Pin Físico Crudo (3.3V)
+                        </span>
+                        <span className="text-cyan-400 flex items-center gap-1 font-bold">
+                          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block" /> CH2: Variable C Filtrada (flag)
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-500 font-mono">Base de tiempo: 1 ms/div • Escala: 1V/div</span>
+                    </div>
+
+                    <div className="w-full h-44 bg-[#050f14] border border-slate-800 rounded-lg relative overflow-hidden flex items-center">
+                      {/* Grid Lines */}
+                      <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 500 160">
+                        {/* Grid lines */}
+                        <defs>
+                          <pattern id="oscGrid" width="50" height="32" patternUnits="userSpaceOnUse">
+                            <path d="M 50 0 L 0 0 0 32" fill="none" stroke="#102a3a" strokeWidth="1" strokeDasharray="2,2" />
+                          </pattern>
+                        </defs>
+                        <rect width="500" height="160" fill="url(#oscGrid)" />
+
+                        {/* Trigger level line */}
+                        <line x1="0" y1="50" x2="500" y2="50" stroke="#f59e0b" strokeWidth="0.8" strokeDasharray="4,4" opacity="0.6" />
+
+                        {/* Channel 1 Waveform (Raw Pin Voltage with Bouncing) */}
+                        {bounceActive ? (
+                          <path
+                            d="M 0,30 L 60,30 L 70,120 L 75,40 L 80,115 L 85,45 L 90,110 L 95,50 L 100,105 L 105,100 L 110,120 L 500,120"
+                            fill="none"
+                            stroke="#f59e0b"
+                            strokeWidth="2.5"
+                          />
+                        ) : (
+                          <path d="M 0,30 L 500,30" fill="none" stroke="#f59e0b" strokeWidth="2.5" />
+                        )}
+
+                        {/* Channel 2 Waveform (Filtered Software Flag in C) */}
+                        {bounceActive ? (
+                          debounceFilterMethod === 'none' ? (
+                            // Jittery raw output mimicking bouncy false triggers
+                            <path
+                              d="M 0,140 L 60,140 L 70,80 L 75,140 L 80,80 L 85,140 L 90,80 L 95,140 L 100,80 L 105,80 L 110,80 L 500,80"
+                              fill="none"
+                              stroke="#06b6d4"
+                              strokeWidth="2"
+                              strokeDasharray="1,1"
+                            />
+                          ) : (
+                            // Clean debounced single transition after 20ms
+                            <path
+                              d="M 0,140 L 140,140 L 145,80 L 500,80"
+                              fill="none"
+                              stroke="#06b6d4"
+                              strokeWidth="2.5"
+                            />
+                          )
+                        ) : (
+                          <path d="M 0,140 L 500,140" fill="none" stroke="#06b6d4" strokeWidth="2.5" />
+                        )}
+                      </svg>
+
+                      {/* On-screen status indicator */}
+                      <div className="absolute top-2 right-3 font-mono text-[10px] space-y-0.5 text-right pointer-events-none">
+                        <div className="text-amber-300">
+                          {bounceActive ? '⚠️ 6 Flancos de Rebote Detectados (0 a 4.5 ms)' : 'Pulsador en Reposo (3.3V Pull-Up)'}
+                        </div>
+                        <div className="text-cyan-300">
+                          {bounceActive
+                            ? debounceFilterMethod === 'none'
+                              ? '❌ FALLO: Contador sumó 6 pulsaciones falsas'
+                              : '✓ FILTRADO: 1 Única pulsación confirmada en t=20ms'
+                            : 'Estado software: ESPERANDO FLANCO'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* C Debounce Code snippet */}
+                  <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg font-mono text-xs text-slate-300 space-y-2">
+                    <span className="text-cyan-300 font-bold block">
+                      Implementación en C del Integrador No Bloqueante (Llamado cada 5ms en SysTick):
+                    </span>
+                    <pre className="p-2.5 bg-black rounded border border-slate-800 text-[11px] text-emerald-400 overflow-x-auto leading-tight">
+{`static uint8_t debounced_state = 1;
+static uint8_t stable_count = 0;
+
+void SysTick_5ms_Handler(void) {
+    uint8_t raw = (GPIOA->IDR >> 0) & 1; // Lee pin con rebote
+    if (raw != debounced_state) {
+        if (++stable_count >= 4) { // 4 muestras * 5ms = 20ms estable
+            debounced_state = raw;
+            stable_count = 0;
+            if (debounced_state == 0) {
+                on_button_pressed_single_event(); // ¡1 solo disparo garantizado!
+            }
+        }
+    } else {
+        stable_count = 0;
+    }
+}`}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {/* MODO INTEGRIDAD DE SEÑAL & TERMINACIÓN 120 OHMIOS */}
+              {analyzerMode === 'signal-ringing' && (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                    <div>
+                      <span className="text-xs font-mono font-bold text-rose-300 uppercase">
+                        Integridad de Señal en Alta Frecuencia: Reflexiones y Sobretensión (Ringing)
+                      </span>
+                      <p className="text-xs text-slate-400">
+                        Comprueba por qué un bus CAN o SPI rápido a través de cables largos se destruye sin la resistencia de 120 Ω.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setTermination120Active(!termination120Active)}
+                        className={`px-3 py-1.5 rounded font-mono font-bold text-xs border transition-all ${
+                          termination120Active
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 shadow-sm'
+                            : 'bg-rose-500/25 text-rose-300 border-rose-500/60 shadow-md animate-pulse'
+                        }`}
+                      >
+                        Resistencia 120 Ω: {termination120Active ? 'CONECTADA (Adaptada)' : 'DESCONECTADA (Reflexión)'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sliders de control */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-slate-300">Longitud de Cable / Pista PCB:</span>
+                        <span className="text-cyan-300 font-bold">{cableLengthMeters} metros</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="2"
+                        max="50"
+                        value={cableLengthMeters}
+                        onChange={(e) => setCableLengthMeters(Number(e.target.value))}
+                        className="w-full accent-cyan-400"
+                      />
+                    </div>
+
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-1">
+                      <div className="text-slate-300">Impedancia Característica de Línea:</div>
+                      <div className="text-amber-300 font-bold">
+                        Z₀ ≈ 120 Ω • Tiempo de propagación: {(cableLengthMeters * 5).toFixed(0)} ns
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SVG High-Frequency Oscilloscope Display */}
+                  <div className="p-4 bg-black border-2 border-slate-800 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-rose-400 font-bold flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block" /> Forma de Onda en el Receptor (CAN_RX / MISO)
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-mono">Escala: 20 ns/div • Tensión máx de silicio: 3.6V</span>
+                    </div>
+
+                    <div className="w-full h-44 bg-[#0a0505] border border-slate-800 rounded-lg relative overflow-hidden flex items-center">
+                      <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 500 160">
+                        {/* Grid */}
+                        <defs>
+                          <pattern id="ringGrid" width="50" height="32" patternUnits="userSpaceOnUse">
+                            <path d="M 50 0 L 0 0 0 32" fill="none" stroke="#251010" strokeWidth="1" strokeDasharray="2,2" />
+                          </pattern>
+                        </defs>
+                        <rect width="500" height="160" fill="url(#ringGrid)" />
+
+                        {/* Absolute Maximum Voltage Limit (3.6V) */}
+                        <line x1="0" y1="42" x2="500" y2="42" stroke="#ef4444" strokeWidth="1" strokeDasharray="3,3" />
+                        <text x="5" y="38" fill="#ef4444" fontSize="10" fontFamily="monospace">Límite Silicio VDD + 0.3V (3.6V)</text>
+
+                        {/* Logic High Threshold (VIH 2.0V) */}
+                        <line x1="0" y1="80" x2="500" y2="80" stroke="#06b6d4" strokeWidth="0.7" strokeDasharray="2,2" />
+                        <text x="5" y="76" fill="#06b6d4" fontSize="9" fontFamily="monospace">Umbral VIH (2.0V)</text>
+
+                        {/* Signal Waveform */}
+                        {termination120Active ? (
+                          // Clean critically-damped waveform with proper termination
+                          <path
+                            d="M 0,130 L 80,130 C 95,130 98,55 110,55 L 500,55"
+                            fill="none"
+                            stroke="#10b981"
+                            strokeWidth="2.5"
+                          />
+                        ) : (
+                          // Destructive ringing with overshoot > 5V and undershoot crossing VIH
+                          <path
+                            d="M 0,130 L 80,130 L 95,15 L 115,100 L 135,28 L 155,85 L 175,45 L 195,65 L 215,52 L 235,58 L 500,55"
+                            fill="none"
+                            stroke="#f43f5e"
+                            strokeWidth="2.5"
+                          />
+                        )}
+                      </svg>
+
+                      {/* Overlay diagnostics */}
+                      <div className="absolute top-2 right-3 font-mono text-[10px] space-y-0.5 text-right pointer-events-none">
+                        <div className={termination120Active ? 'text-emerald-300' : 'text-rose-400 font-bold'}>
+                          {termination120Active
+                            ? '✓ ADAPTACIÓN PERFECTA: Flanco limpio sin oscilaciones parásitas'
+                            : '⚠️ OVERSHOOT PELIGROSO: Picos de 5.2V dañan el transistor de entrada'}
+                        </div>
+                        <div className="text-slate-400">
+                          {termination120Active
+                            ? 'Tensión máxima alcanzada: 3.32V (Seguro)'
+                            : 'Tensión máxima: 5.24V • Cruce espurio de VIH genera bit fantasma'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Senior Advice Card */}
+                  <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg text-xs font-mono text-slate-300 space-y-1">
+                    <span className="text-purple-300 font-bold block">
+                      Regla de Oro de Hardware para Buses de Campo (CAN / RS-485 / SPI):
+                    </span>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Toda línea de transmisión cuya longitud sea mayor que la distancia que recorre la señal en un tercio del tiempo de subida (longitud &gt; t_subida / (3 * t_prop)) requiere <strong>terminación paralela de 120 Ω en los dos extremos físicos del bus</strong>. En placas con señales rápidas de 3.3V, colocar resistencias en serie (22 Ω a 33 Ω) en la salida del transmisor amortigua las reflexiones.
+                    </p>
                   </div>
                 </div>
               )}

@@ -29,7 +29,8 @@ import {
   XCircle,
   BookMarked,
   BookOpen,
-  AlertTriangle
+  AlertTriangle,
+  FileText
 } from 'lucide-react';
 import { MCU_CATALOG, MCU_LIST, MCUId } from './data/mcusData';
 import { COURSE_MODULES } from './data/curriculumData';
@@ -41,6 +42,8 @@ import {
   evaluateEmbeddedCCode
 } from './components/InteractiveLabs';
 import { CCodeBlock, CInlineCode, CLiveCodeEditor } from './components/CSyntaxCodeBlock';
+import { StudySlidesDeck } from './components/StudySlidesDeck';
+import { CheatSheetsCatalog } from './components/CheatSheetsCatalog';
 
 /** Clave utilizada en `localStorage` para persistir los IDs de los módulos completados por el estudiante. */
 const COMPLETED_MODULES_STORAGE_KEY = 'programacion_c_completed_modules';
@@ -104,7 +107,11 @@ export function App() {
   const [compareAllMcusCode, setCompareAllMcusCode] = useState<boolean>(false);
   // Muestra/oculta la matriz técnica desplegable comparando los 5 chips
   const [showSpecsMatrix, setShowSpecsMatrix] = useState<boolean>(false);
-  // Estación activa del Laboratorio Interactivo (Lab 0 a Lab 9)
+  // Modal de Slides de Estudio paso a paso para cuaderno físico
+  const [showStudySlides, setShowStudySlides] = useState<boolean>(false);
+  // Modal de Fichas Técnicas imprimibles (Cheat Sheets A4)
+  const [showCheatSheets, setShowCheatSheets] = useState<boolean>(false);
+  // Estación activa del Laboratorio Interactivo (Lab 0 a Lab 10)
   const [activeLab, setActiveLab] = useState<ExtendedLabViewType>('c-memory-pointers');
 
   // Estado de respuestas seleccionadas en los retos tipo test y módulos completados
@@ -333,6 +340,14 @@ export function App() {
             >
               <GitCompare className="w-3.5 h-3.5" />
               {showSpecsMatrix ? '[OCULTAR MATRIZ]' : '[COMPARAR 5 CHIPS]'}
+            </button>
+
+            <button
+              onClick={() => setShowCheatSheets(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-black hover:bg-amber-950/40 border-2 border-amber-400 text-xs font-pixel text-amber-300 transition-all ml-1 shadow-sm"
+            >
+              <FileText className="w-3.5 h-3.5 text-amber-400" />
+              <span>[FICHAS TÉCNICAS A4]</span>
             </button>
           </div>
         </div>
@@ -586,7 +601,14 @@ export function App() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setShowStudySlides(true)}
+                    className="px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900 border-2 border-cyan-400 text-xs font-pixel font-bold text-cyan-200 flex items-center gap-1.5 shadow-sm transition-all"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-cyan-300" />
+                    <span>SLIDES CUADERNO</span>
+                  </button>
                   <button
                     disabled={currentModule.id <= 0}
                     onClick={() => handleSelectModule(currentModule.id - 1)}
@@ -1344,6 +1366,24 @@ export function App() {
           </div>
         </div>
       </footer>
+
+      {/* ===================================================================
+          MODALES DE APOYO TÉCNICO: SLIDES DE ESTUDIO & FICHAS CHEAT SHEETS A4
+         =================================================================== */}
+      <StudySlidesDeck
+        module={currentModule}
+        extended={currentExtended}
+        chapters={currentDeepChapters}
+        mcu={currentMcu}
+        isOpen={showStudySlides}
+        onClose={() => setShowStudySlides(false)}
+      />
+
+      <CheatSheetsCatalog
+        isOpen={showCheatSheets}
+        onClose={() => setShowCheatSheets(false)}
+        defaultMcuId={selectedMcuId}
+      />
     </div>
   );
 }
